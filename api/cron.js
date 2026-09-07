@@ -31,7 +31,10 @@ export default async function handler(req, res) {
     const results = await Promise.allSettled(candidates.map(async (record) => {
       const tts = await fetch(TTS_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cronSecret}`
+        },
         body: JSON.stringify({ recordId: record.id })
       });
       const body = await tts.json().catch(() => ({}));
