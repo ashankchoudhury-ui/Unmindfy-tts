@@ -4,6 +4,7 @@ const AIRTABLE_API = 'https://api.airtable.com/v0';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const MODEL = 'gemini-3.1-flash-tts-preview';
 const TABLE = 'Content Pipeline';
+const MAX_SCRIPT_CHARS = 12000;
 
 function env(name) {
   const value = process.env[name];
@@ -11,12 +12,15 @@ function env(name) {
   return value;
 }
 
+function json(res, status, body) {
+  return res.status(status).json(body);
+}
+
 async function airtableRequest(path, options = {}) {
-  const token = env('AIRTABLE_TOKEN');
   const response = await fetch(`${AIRTABLE_API}/${env('AIRTABLE_BASE_ID')}/${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${env('AIRTABLE_TOKEN')}`,
       'Content-Type': 'application/json',
       ...(options.headers || {})
     }
@@ -57,19 +61,34 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   return buffer;
 }
 
+function getVoicePrompt(script) {
+  return `Audio profile: a young, thoughtful male speaker.\nScene: casually explaining an interesting psychological idea to a friend.\nDirector's notes: natural conversational delivery; smooth and continuous around normal conversational speed; slight curiosity at the beginning, then a calm realization; understated and human; no announcer voice, no motivational-speaker energy, no exaggerated emotion, no forced pauses. Preserve the wording exactly.\n\nScript:\n${script}`;
+}
+
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  if (req.method === 'GET') {
+    return json(res, 200, { ok: true, service: 'unmindy-tts', model: MODEL });
+  }
+
+  if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
 
   let recordId;
   try {
     recordId = req.body?.recordId;
-    if (!recordId) return res.status(400).json({ error: 'recordId is required' });
+    if (!recordId || !/^rec[A-Za-z0-9]{14}$/.test(recordId)) {
+      return json(res, 400, { error: 'A valid Airtable recordId is required' });
+    }
 
     const record = await airtableRequest(`${encodeURIComponent(TABLE)}/${recordId}`);
     const script = record.fields?.Script;
     if (!script || typeof script !== 'string') throw new Error('Airtable Script field is empty');
 
-    await updateRecord(recordId, { 'TTS Status': { name: 'Generating' } });
+    const cleanScript = script.trim();
+    if (cleanScript.length > MAX_SCRIPT_CHARS) {
+      throw new Error(`Script is too long; maximum is ${MAX_SCRIPT_CHARS} characters`);
+    }
+
+    await updateRecord(recordId, { 'TTS Status': 'Generating' });
 
     const geminiResponse = await fetch(GEMINI_URL, {
       method: 'POST',
@@ -79,7 +98,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: MODEL,
-        input: `Natural conversational male voice, young and thoughtful. Speak like you are casually telling a friend about an interesting psychological idea. Smooth, continuous delivery around 0.95–1.0x speed. Slight curiosity at the start, then a calm realization. No announcer voice, no motivational-speaker energy, no exaggerated emotion, no forced pauses. Keep the wording exactly as provided.\n\n${script}`,
+        input: getVoicePrompt(cleanScript),
         response_format: { type: 'audio' },
         generation_config: {
           speech_config: [{ voice: 'Kore' }]
@@ -88,30 +107,36 @@ export default async function handler(req, res) {
     });
 
     const gemini = await geminiResponse.json().catch(() => ({}));
-    if (!geminiResponse.ok) throw new Error(`Gemini ${geminiResponse.status}: ${JSON.stringify(gemini)}`);
+    if (!geminiResponse.ok) {
+      throw new Error(`Gemini ${geminiResponse.status}: ${JSON.stringify(gemini)}`);
+    }
 
     const audioBase64 = gemini?.output_audio?.data;
     if (!audioBase64) throw new Error('Gemini returned no audio data');
 
     const wav = pcmToWav(base64ToBytes(audioBase64));
-    const blob = await put(`tts/${recordId}-${Date.now()}.wav`, wav, {
+    const blob = await put(`tts/${recordId}.wav`, wav, {
       access: 'public',
       contentType: 'audio/wav',
       addRandomSuffix: false,
+      allowOverwrite: true,
       token: env('BLOB_READ_WRITE_TOKEN')
     });
 
     await updateRecord(recordId, {
-      'TTS Audio': [{ url: blob.url, filename: `unmindfy-${recordId}.wav` }],
-      'TTS Status': { name: 'Ready' }
+      'TTS Audio': [{ url: blob.url, filename: `unmindy-${recordId}.wav` }],
+      'TTS Status': 'Ready'
     });
 
-    return res.status(200).json({ ok: true, recordId, audioUrl: blob.url });
+    return json(res, 200, { ok: true, recordId, audioUrl: blob.url, model: MODEL });
   } catch (error) {
     if (recordId) {
-      try { await updateRecord(recordId, { 'TTS Status': { name: 'Error' } }); } catch {}
+      try { await updateRecord(recordId, { 'TTS Status': 'Error' }); } catch {}
     }
-    console.error(error);
-    return res.status(500).json({ error: error instanceof Error ? error.message : 'TTS generation failed' });
+    console.error('UNMINDY TTS error:', error);
+    return json(res, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : 'TTS generation failed'
+    });
   }
 }
