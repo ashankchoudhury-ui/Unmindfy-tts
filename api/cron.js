@@ -1,6 +1,4 @@
-const AIRTABLE_API = 'https://api.airtable.com/v0';
-const AIRTABLE_BASE_ID = 'appPJMnW3YzULKpma';
-const TABLE = 'Content Pipeline';
+const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const TTS_ENDPOINT = 'https://unmindfy-tts.vercel.app/api/tts';
 
 function env(name) {
@@ -9,24 +7,40 @@ function env(name) {
   return value;
 }
 
+async function supabaseRequest(path, options = {}) {
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error('Missing SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY');
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Supabase ${response.status}: ${JSON.stringify(data)}`);
+  return data;
+}
+
 export default async function handler(req, res) {
   const cronSecret = env('CRON_SECRET');
   if (req.headers.authorization !== `Bearer ${cronSecret}`) {
     return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
 
-  try {
-    const response = await fetch(`${AIRTABLE_API}/${AIRTABLE_BASE_ID}/${encodeURIComponent(TABLE)}?maxRecords=10`, {
-      headers: { Authorization: `Bearer ${env('AIRTABLE_TOKEN')}` }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(`Airtable ${response.status}: ${JSON.stringify(data)}`);
+  if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' });
 
-    const candidates = (data.records || []).filter((record) => {
-      const script = record.fields?.Script;
-      const status = record.fields?.['TTS Status'];
-      const statusName = typeof status === 'string' ? status : status?.name;
-      return typeof script === 'string' && script.trim() && (!statusName || statusName === 'Not Generated');
+  try {
+    const data = await supabaseRequest(
+      'content_pipeline?select=id,script,tts_status,tts_audio_url,created_at&order=created_at.asc&limit=10'
+    );
+
+    const candidates = (data || []).filter((record) => {
+      const script = record.script;
+      return typeof script === 'string' && script.trim() && (!record.tts_status || record.tts_status === 'Not Generated');
     }).slice(0, 3);
 
     const results = await Promise.allSettled(candidates.map(async (record) => {
@@ -44,6 +58,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       ok: true,
+      source: 'supabase',
       found: candidates.length,
       results: results.map((r) => r.status === 'fulfilled' ? r.value : { error: String(r.reason) })
     });

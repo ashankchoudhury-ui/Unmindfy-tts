@@ -1,10 +1,8 @@
 import { put } from '@vercel/blob';
 
-const AIRTABLE_API = 'https://api.airtable.com/v0';
-const AIRTABLE_BASE_ID = 'appPJMnW3YzULKpma';
+const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const MODEL = 'gemini-3.1-flash-tts-preview';
-const TABLE = 'Content Pipeline';
 const MAX_SCRIPT_CHARS = 12000;
 
 function env(name) {
@@ -13,20 +11,43 @@ function env(name) {
   return value;
 }
 
+function supabaseKey() {
+  const value = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!value) throw new Error('Missing SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY');
+  return value;
+}
+
 function json(res, status, body) { return res.status(status).json(body); }
 
-async function airtableRequest(path, options = {}) {
-  const response = await fetch(`${AIRTABLE_API}/${AIRTABLE_BASE_ID}/${path}`, {
+async function supabaseRequest(path, options = {}) {
+  const key = supabaseKey();
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...options,
-    headers: { Authorization: `Bearer ${env('AIRTABLE_TOKEN')}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`Airtable ${response.status}: ${JSON.stringify(data)}`);
+  if (!response.ok) throw new Error(`Supabase ${response.status}: ${JSON.stringify(data)}`);
   return data;
 }
 
+async function getRecord(recordId) {
+  const rows = await supabaseRequest(
+    `content_pipeline?id=eq.${encodeURIComponent(recordId)}&select=id,script,tts_status,tts_audio_url&limit=1`
+  );
+  return rows[0] || null;
+}
+
 async function updateRecord(recordId, fields) {
-  return airtableRequest(`${encodeURIComponent(TABLE)}/${recordId}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+  await supabaseRequest(`content_pipeline?id=eq.${encodeURIComponent(recordId)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() })
+  });
 }
 
 function base64ToBytes(base64) { return Uint8Array.from(Buffer.from(base64, 'base64')); }
@@ -48,7 +69,7 @@ function getVoicePrompt(script) {
 }
 
 export default async function handler(req, res) {
-  if (req.method === 'GET') return json(res, 200, { ok: true, service: 'unmindy-tts', model: MODEL });
+  if (req.method === 'GET') return json(res, 200, { ok: true, service: 'unmindy-tts', model: MODEL, storage: 'supabase' });
   if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
 
   const cronSecret = env('CRON_SECRET');
@@ -57,15 +78,23 @@ export default async function handler(req, res) {
   let recordId;
   try {
     recordId = req.body?.recordId;
-    if (!recordId || !/^rec[A-Za-z0-9]{14}$/.test(recordId)) return json(res, 400, { error: 'A valid Airtable recordId is required' });
+    if (!recordId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(recordId)) {
+      return json(res, 400, { error: 'A valid Supabase UUID recordId is required' });
+    }
 
-    const record = await airtableRequest(`${encodeURIComponent(TABLE)}/${recordId}`);
-    const script = record.fields?.Script;
-    if (!script || typeof script !== 'string') throw new Error('Airtable Script field is empty');
+    const record = await getRecord(recordId);
+    if (!record) return json(res, 404, { ok: false, error: 'Content pipeline record not found' });
+
+    const script = record.script;
+    if (!script || typeof script !== 'string') throw new Error('Supabase script field is empty');
     const cleanScript = script.trim();
     if (cleanScript.length > MAX_SCRIPT_CHARS) throw new Error(`Script is too long; maximum is ${MAX_SCRIPT_CHARS} characters`);
 
-    await updateRecord(recordId, { 'TTS Status': 'Generating' });
+    if (record.tts_status === 'Ready' && record.tts_audio_url) {
+      return json(res, 200, { ok: true, recordId, audioUrl: record.tts_audio_url, model: MODEL, alreadyReady: true });
+    }
+
+    await updateRecord(recordId, { tts_status: 'Generating' });
 
     const geminiResponse = await fetch(GEMINI_URL, {
       method: 'POST',
@@ -80,10 +109,10 @@ export default async function handler(req, res) {
     const wav = pcmToWav(base64ToBytes(audioBase64));
     const blob = await put(`tts/${recordId}.wav`, wav, { access: 'public', contentType: 'audio/wav', addRandomSuffix: false, allowOverwrite: true, token: env('BLOB_READ_WRITE_TOKEN') });
 
-    await updateRecord(recordId, { 'TTS Audio': [{ url: blob.url, filename: `unmindy-${recordId}.wav` }], 'TTS Status': 'Ready' });
+    await updateRecord(recordId, { tts_audio_url: blob.url, tts_status: 'Ready' });
     return json(res, 200, { ok: true, recordId, audioUrl: blob.url, model: MODEL });
   } catch (error) {
-    if (recordId) { try { await updateRecord(recordId, { 'TTS Status': 'Error' }); } catch {} }
+    if (recordId) { try { await updateRecord(recordId, { tts_status: 'Error' }); } catch {} }
     console.error('UNMINDY TTS error:', error);
     return json(res, 500, { ok: false, error: error instanceof Error ? error.message : 'TTS generation failed' });
   }
