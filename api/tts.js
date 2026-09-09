@@ -1,3 +1,4 @@
+// UNMINDY TTS production worker — Deadpan voice direction.
 const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const MODEL = 'gemini-3.1-flash-tts-preview';
