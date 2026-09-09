@@ -93,20 +93,20 @@ function getVoicePrompt(script) {
   return `TTS the following transcript. Only speak the text under TRANSCRIPT. Do not read the headings or instructions aloud.
 
 # AUDIO PROFILE
-Young adult male narrator. Natural, intelligent, grounded, intimate and conversational. Sounds like a real person sharing an observation with one listener. Not an announcer, advertisement, motivational speaker or exaggerated storyteller.
+Young adult male narrator. Smooth, grounded, intelligent and understated. Natural human voice with a dry, deadpan character. Sounds like a real person casually sharing an observation with one listener. Never sounds like an announcer, advertisement, motivational speaker or exaggerated storyteller.
 
 ## SCENE
-A quiet, intimate conversation. The narrator is casually explaining an interesting psychological idea to a friend. The narrator is noticing something psychologically true rather than lecturing. The emotional atmosphere should match the topic of the transcript.
+A quiet, intimate conversation. The narrator is casually explaining an interesting psychological idea to a friend. The delivery is matter-of-fact and subtly dry, as if the observation is interesting but the speaker is not trying to impress anyone. The emotional atmosphere should match the topic of the transcript.
 
 ### DIRECTOR'S NOTES
-Style: Natural, casual, thoughtful and human. Understated rather than theatrical.
+Style: Deadpan. Flat affect with minimal pitch variation and a dry, understated delivery. Keep the performance natural rather than robotic. The humor or interest should come from the words and situation, not from exaggerated acting.
 Pacing: Smooth, continuous conversational pace suitable for a short-form Reel. Keep it moving without rushing. Use natural micro-pauses only where the thought changes.
-Articulation: Clear and easy to understand without sounding commercial.
-Emotion: Begin with natural curiosity or observation, build slightly toward recognition or tension when the idea calls for it, then let the final realization land simply and naturally.
-Performance: Do not over-act. Do not make every sentence dramatic. Do not insert long pauses between short phrases. Do not over-emphasize individual words. Keep the narrator identity consistent.
+Articulation: Clear and easy to understand without sounding commercial or overly polished.
+Emotion: Begin with calm observation, build only as much tension or curiosity as the idea naturally requires, then let the final realization land simply and matter-of-factly.
+Performance: Do not over-act. Do not make every sentence dramatic. Do not use a theatrical vocal smile. Do not insert long pauses between short phrases. Do not over-emphasize individual words. Keep the narrator identity consistent.
 
 ### SAMPLE CONTEXT
-A young person is casually talking to a friend about something they have noticed about their own thinking. It should sound spontaneous and conversational, as if the speaker is explaining an interesting realization rather than performing a written script. Keep the delivery naturally energetic enough for a short social-media video, but never rushed. The speaker is calm and confident at the beginning. As the idea develops, the delivery can become slightly more focused and thoughtful. The middle should have natural conversational rhythm, with small variations in pacing and emphasis rather than deliberate dramatic pauses. Near the end, the tension should disappear and the final thought should sound like the speaker casually realizing something simple and true. Do not sound like a motivational speaker, narrator, audiobook reader, advertisement, or dramatic storyteller.
+A young person is casually talking to a friend about something they have noticed about their own thinking. It should sound spontaneous and conversational, with a dry, deadpan edge, as if the speaker is explaining an interesting realization without trying to perform it. Keep the delivery naturally engaging enough for a short social-media video, but never hype or rush it. The speaker stays calm and matter-of-fact throughout. The middle can become slightly more focused as the idea develops, but avoid dramatic emotional escalation. Near the end, the final thought should sound like a simple realization delivered almost casually. Do not sound like a motivational speaker, narrator, audiobook reader, advertisement, newsreader, or dramatic storyteller.
 
 #### TRANSCRIPT
 ${script}`;
