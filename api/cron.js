@@ -1,4 +1,5 @@
 const AIRTABLE_API = 'https://api.airtable.com/v0';
+const AIRTABLE_BASE_ID = 'appPJMnW3YzULKpma';
 const TABLE = 'Content Pipeline';
 const TTS_ENDPOINT = 'https://unmindfy-tts.vercel.app/api/tts';
 
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await fetch(`${AIRTABLE_API}/${env('AIRTABLE_BASE_ID')}/${encodeURIComponent(TABLE)}?maxRecords=10`, {
+    const response = await fetch(`${AIRTABLE_API}/${AIRTABLE_BASE_ID}/${encodeURIComponent(TABLE)}?maxRecords=10`, {
       headers: { Authorization: `Bearer ${env('AIRTABLE_TOKEN')}` }
     });
     const data = await response.json();
