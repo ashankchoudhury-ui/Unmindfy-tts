@@ -69,8 +69,6 @@ function getVoicePrompt(script) {
 }
 
 function extractGeminiAudio(interaction) {
-  // The Interactions API now returns generated media inside model_output steps.
-  // Keep the SDK-style output_audio fallback for compatibility.
   if (interaction?.output_audio?.data) {
     return {
       data: interaction.output_audio.data,
@@ -137,7 +135,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         input: getVoicePrompt(cleanScript),
-        response_format: { type: 'audio', delivery: 'inline', mime_type: 'audio/l16' },
+        response_format: { type: 'audio' },
         generation_config: { speech_config: [{ voice: 'Kore' }] }
       })
     });
