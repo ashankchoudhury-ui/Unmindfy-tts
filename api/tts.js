@@ -1,6 +1,7 @@
 import { put } from '@vercel/blob';
 
 const AIRTABLE_API = 'https://api.airtable.com/v0';
+const AIRTABLE_BASE_ID = 'appPJMnW3YzULKpma';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const MODEL = 'gemini-3.1-flash-tts-preview';
 const TABLE = 'Content Pipeline';
@@ -15,7 +16,7 @@ function env(name) {
 function json(res, status, body) { return res.status(status).json(body); }
 
 async function airtableRequest(path, options = {}) {
-  const response = await fetch(`${AIRTABLE_API}/${env('AIRTABLE_BASE_ID')}/${path}`, {
+  const response = await fetch(`${AIRTABLE_API}/${AIRTABLE_BASE_ID}/${path}`, {
     ...options,
     headers: { Authorization: `Bearer ${env('AIRTABLE_TOKEN')}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
   });
