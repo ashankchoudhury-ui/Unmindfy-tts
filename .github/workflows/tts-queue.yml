@@ -2,6 +2,8 @@
 name: UNMINDY TTS Queue
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
@@ -20,6 +22,7 @@ jobs:
           CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: |
           set -euo pipefail
+          test -n "${CRON_SECRET}" || { echo "UNMINDY_CRON_SECRET is missing"; exit 1; }
           response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 120 -X GET \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "https://unmindfy-tts.vercel.app/api/cron")
