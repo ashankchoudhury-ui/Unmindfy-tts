@@ -81,8 +81,6 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   return buffer;
 }
 
-// TTS gets a single flowing transcript. Normalize accidental editor line breaks
-// so formatting does not become artificial pacing.
 function normalizeTranscript(script) {
   return script
     .replace(/\s*\n\s*/g, ' ')
@@ -91,25 +89,15 @@ function normalizeTranscript(script) {
 }
 
 function getVoicePrompt(script) {
-  return `TTS the following transcript. Only speak the text under TRANSCRIPT. Do not read the headings or instructions aloud.
+  return `Speak this transcript in a DRY DEADPAN style.
 
-# AUDIO PROFILE
-Young adult male narrator. Smooth, grounded, intelligent and understated. Natural human voice with a dry, deadpan character. Sounds like a real person casually sharing an observation with one listener. Never sounds like an announcer, advertisement, motivational speaker or exaggerated storyteller.
+PERFORMANCE: The narrator is calm, restrained, matter-of-fact, and subtly dry. Keep pitch movement small and controlled. Keep emotional intensity low. Sound mildly amused and observant, not excited. Do not sound like a presenter, announcer, advertisement, motivational speaker, audiobook narrator, or dramatic storyteller. Do not perform the lines theatrically. Do not add hype, enthusiasm, vocal smiling, exaggerated emphasis, or dramatic pauses. Let the words carry the interest. Keep a natural conversational rhythm with short, organic pauses only where a person would naturally think.
 
-## SCENE
-A quiet, intimate conversation. The narrator is casually explaining an interesting psychological idea to a friend. The delivery is matter-of-fact and subtly dry, as if the observation is interesting but the speaker is not trying to impress anyone. The emotional atmosphere should match the topic of the transcript.
+VOICE: Young adult male, Algieba. Smooth, grounded, intimate, casual, and believable. The voice should feel like one person casually telling a friend an interesting realization. Keep the same restrained deadpan character from the first word to the last.
 
-### DIRECTOR'S NOTES
-Style: Deadpan. Flat affect with minimal pitch variation and a dry, understated delivery. Keep the performance natural rather than robotic. The humor or interest should come from the words and situation, not from exaggerated acting.
-Pacing: Smooth, continuous conversational pace suitable for a short-form Reel. Keep it moving without rushing. Use natural micro-pauses only where the thought changes.
-Articulation: Clear and easy to understand without sounding commercial or overly polished.
-Emotion: Begin with calm observation, build only as much tension or curiosity as the idea naturally requires, then let the final realization land simply and matter-of-factly.
-Performance: Do not over-act. Do not make every sentence dramatic. Do not use a theatrical vocal smile. Do not insert long pauses between short phrases. Do not over-emphasize individual words. Keep the narrator identity consistent.
+IMPORTANT: Synthesize ONLY the text inside TRANSCRIPT. Everything before TRANSCRIPT is performance direction and must NOT be spoken.
 
-### SAMPLE CONTEXT
-A young person is casually talking to a friend about something they have noticed about their own thinking. It should sound spontaneous and conversational, with a dry, deadpan edge, as if the speaker is explaining an interesting realization without trying to perform it. Keep the delivery naturally engaging enough for a short social-media video, but never hype or rush it. The speaker stays calm and matter-of-fact throughout. The middle can become slightly more focused as the idea develops, but avoid dramatic emotional escalation. Near the end, the final thought should sound like a simple realization delivered almost casually. Do not sound like a motivational speaker, narrator, audiobook reader, advertisement, newsreader, or dramatic storyteller.
-
-#### TRANSCRIPT
+TRANSCRIPT:
 ${script}`;
 }
 
