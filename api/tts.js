@@ -68,6 +68,37 @@ function getVoicePrompt(script) {
   return `Audio profile: a young, thoughtful male speaker.\nScene: casually explaining an interesting psychological idea to a friend.\nDirector's notes: natural conversational delivery; smooth and continuous around normal conversational speed; slight curiosity at the beginning, then a calm realization; understated and human; no announcer voice, no motivational-speaker energy, no exaggerated emotion, no forced pauses. Preserve the wording exactly.\n\nScript:\n${script}`;
 }
 
+function extractGeminiAudio(interaction) {
+  // The Interactions API now returns generated media inside model_output steps.
+  // Keep the SDK-style output_audio fallback for compatibility.
+  if (interaction?.output_audio?.data) {
+    return {
+      data: interaction.output_audio.data,
+      sampleRate: interaction.output_audio.sample_rate || 24000,
+      channels: interaction.output_audio.channels || 1,
+      mimeType: interaction.output_audio.mime_type || 'audio/l16'
+    };
+  }
+
+  const steps = Array.isArray(interaction?.steps) ? interaction.steps : [];
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const content = Array.isArray(steps[i]?.content) ? steps[i].content : [];
+    for (let j = content.length - 1; j >= 0; j -= 1) {
+      const item = content[j];
+      if (item?.type === 'audio' && item?.data) {
+        return {
+          data: item.data,
+          sampleRate: item.sample_rate || 24000,
+          channels: item.channels || 1,
+          mimeType: item.mime_type || 'audio/l16'
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'GET') return json(res, 200, { ok: true, service: 'unmindy-tts', model: MODEL, storage: 'supabase' });
   if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
@@ -98,16 +129,37 @@ export default async function handler(req, res) {
 
     const geminiResponse = await fetch(GEMINI_URL, {
       method: 'POST',
-      headers: { 'x-goog-api-key': env('GEMINI_API_KEY'), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, input: getVoicePrompt(cleanScript), response_format: { type: 'audio' }, generation_config: { speech_config: [{ voice: 'Kore' }] } })
+      headers: {
+        'x-goog-api-key': env('GEMINI_API_KEY'),
+        'Content-Type': 'application/json',
+        'Api-Revision': '2026-05-20'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        input: getVoicePrompt(cleanScript),
+        response_format: { type: 'audio', delivery: 'inline', mime_type: 'audio/l16' },
+        generation_config: { speech_config: [{ voice: 'Kore' }] }
+      })
     });
+
     const gemini = await geminiResponse.json().catch(() => ({}));
     if (!geminiResponse.ok) throw new Error(`Gemini ${geminiResponse.status}: ${JSON.stringify(gemini)}`);
-    const audioBase64 = gemini?.output_audio?.data;
-    if (!audioBase64) throw new Error('Gemini returned no audio data');
 
-    const wav = pcmToWav(base64ToBytes(audioBase64));
-    const blob = await put(`tts/${recordId}.wav`, wav, { access: 'public', contentType: 'audio/wav', addRandomSuffix: false, allowOverwrite: true, token: env('BLOB_READ_WRITE_TOKEN') });
+    const audio = extractGeminiAudio(gemini);
+    if (!audio?.data) {
+      const stepTypes = Array.isArray(gemini?.steps) ? gemini.steps.map((step) => step?.type).filter(Boolean) : [];
+      throw new Error(`Gemini returned no audio data (steps: ${stepTypes.join(',') || 'none'})`);
+    }
+
+    const pcm = base64ToBytes(audio.data);
+    const wav = pcmToWav(pcm, audio.sampleRate, audio.channels);
+    const blob = await put(`tts/${recordId}.wav`, wav, {
+      access: 'public',
+      contentType: 'audio/wav',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      token: env('BLOB_READ_WRITE_TOKEN')
+    });
 
     await updateRecord(recordId, { tts_audio_url: blob.url, tts_status: 'Ready' });
     return json(res, 200, { ok: true, recordId, audioUrl: blob.url, model: MODEL });
