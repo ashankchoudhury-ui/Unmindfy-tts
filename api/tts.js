@@ -1,9 +1,8 @@
-import { put } from '@vercel/blob';
-
 const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const MODEL = 'gemini-3.1-flash-tts-preview';
 const MAX_SCRIPT_CHARS = 12000;
+const TTS_BUCKET = 'tts-audio';
 
 function env(name) {
   const value = process.env[name];
@@ -33,6 +32,23 @@ async function supabaseRequest(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`Supabase ${response.status}: ${JSON.stringify(data)}`);
   return data;
+}
+
+async function uploadAudio(path, wav) {
+  const key = supabaseKey();
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${TTS_BUCKET}/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'audio/wav',
+      'x-upsert': 'true'
+    },
+    body: wav
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Supabase Storage ${response.status}: ${JSON.stringify(data)}`);
+  return `${SUPABASE_URL}/storage/v1/object/public/${TTS_BUCKET}/${path}`;
 }
 
 async function getRecord(recordId) {
@@ -151,16 +167,11 @@ export default async function handler(req, res) {
 
     const pcm = base64ToBytes(audio.data);
     const wav = pcmToWav(pcm, audio.sampleRate, audio.channels);
-    const blob = await put(`tts/${recordId}.wav`, wav, {
-      access: 'public',
-      contentType: 'audio/wav',
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      token: env('BLOB_READ_WRITE_TOKEN')
-    });
+    const audioPath = `tts/${recordId}.wav`;
+    const audioUrl = await uploadAudio(audioPath, wav);
 
-    await updateRecord(recordId, { tts_audio_url: blob.url, tts_status: 'Ready' });
-    return json(res, 200, { ok: true, recordId, audioUrl: blob.url, model: MODEL });
+    await updateRecord(recordId, { tts_audio_url: audioUrl, tts_status: 'Ready' });
+    return json(res, 200, { ok: true, recordId, audioUrl, model: MODEL });
   } catch (error) {
     if (recordId) { try { await updateRecord(recordId, { tts_status: 'Error' }); } catch {} }
     console.error('UNMINDY TTS error:', error);
