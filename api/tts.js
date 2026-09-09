@@ -80,8 +80,36 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   return buffer;
 }
 
+// TTS gets a single flowing transcript. Normalize accidental editor line breaks
+// so formatting does not become artificial pacing.
+function normalizeTranscript(script) {
+  return script
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function getVoicePrompt(script) {
-  return `Audio profile: a young, thoughtful male speaker.\nScene: casually explaining an interesting psychological idea to a friend.\nDirector's notes: natural conversational delivery; smooth and continuous around normal conversational speed; slight curiosity at the beginning, then a calm realization; understated and human; no announcer voice, no motivational-speaker energy, no exaggerated emotion, no forced pauses. Preserve the wording exactly.\n\nScript:\n${script}`;
+  return `TTS the following transcript. Only speak the text under TRANSCRIPT. Do not read the headings or instructions aloud.
+
+# AUDIO PROFILE
+Young adult male narrator. Natural, intelligent, grounded, intimate and conversational. Sounds like a real person sharing an observation with one listener. Not an announcer, advertisement, motivational speaker or exaggerated storyteller.
+
+## SCENE
+A quiet, intimate conversation. The narrator is casually explaining an interesting psychological idea to a friend. The narrator is noticing something psychologically true rather than lecturing. The emotional atmosphere should match the topic of the transcript.
+
+### DIRECTOR'S NOTES
+Style: Natural, casual, thoughtful and human. Understated rather than theatrical.
+Pacing: Smooth, continuous conversational pace suitable for a short-form Reel. Keep it moving without rushing. Use natural micro-pauses only where the thought changes.
+Articulation: Clear and easy to understand without sounding commercial.
+Emotion: Begin with natural curiosity or observation, build slightly toward recognition or tension when the idea calls for it, then let the final realization land simply and naturally.
+Performance: Do not over-act. Do not make every sentence dramatic. Do not insert long pauses between short phrases. Do not over-emphasize individual words. Keep the narrator identity consistent.
+
+### SAMPLE CONTEXT
+A young person is casually talking to a friend about something they have noticed about their own thinking. It should sound spontaneous and conversational, as if the speaker is explaining an interesting realization rather than performing a written script. Keep the delivery naturally energetic enough for a short social-media video, but never rushed. The speaker is calm and confident at the beginning. As the idea develops, the delivery can become slightly more focused and thoughtful. The middle should have natural conversational rhythm, with small variations in pacing and emphasis rather than deliberate dramatic pauses. Near the end, the tension should disappear and the final thought should sound like the speaker casually realizing something simple and true. Do not sound like a motivational speaker, narrator, audiobook reader, advertisement, or dramatic storyteller.
+
+#### TRANSCRIPT
+${script}`;
 }
 
 function extractGeminiAudio(interaction) {
@@ -132,7 +160,8 @@ export default async function handler(req, res) {
 
     const script = record.script;
     if (!script || typeof script !== 'string') throw new Error('Supabase script field is empty');
-    const cleanScript = script.trim();
+    const cleanScript = normalizeTranscript(script);
+    if (!cleanScript) throw new Error('Supabase script field is empty');
     if (cleanScript.length > MAX_SCRIPT_CHARS) throw new Error(`Script is too long; maximum is ${MAX_SCRIPT_CHARS} characters`);
 
     if (record.tts_status === 'Ready' && record.tts_audio_url) {
@@ -152,7 +181,7 @@ export default async function handler(req, res) {
         model: MODEL,
         input: getVoicePrompt(cleanScript),
         response_format: { type: 'audio' },
-        generation_config: { speech_config: [{ voice: 'Kore' }] }
+        generation_config: { speech_config: [{ voice: 'Algieba' }] }
       })
     });
 
