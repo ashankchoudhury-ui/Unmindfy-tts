@@ -1,3 +1,4 @@
+// v14: Files API upload is required for reliable Gemini audio transcription.
 const TRANSCRIBE_MODEL='gemini-3.5-transcribe';
 const API='https://generativelanguage.googleapis.com';
 function env(n){const v=process.env[n];if(!v)throw new Error(`Missing environment variable: ${n}`);return v}
