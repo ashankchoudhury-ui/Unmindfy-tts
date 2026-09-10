@@ -16,7 +16,7 @@ function getCookie(req, name) {
 }
 
 async function saveTokens(tokens) {
-  const key = env('SUPABASE_SECRET_KEY') || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) throw new Error('Missing SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY');
   const response = await fetch(`${SUPABASE_URL}/rest/v1/integration_credentials`, {
     method: 'POST',
