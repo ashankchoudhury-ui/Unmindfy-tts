@@ -43,4 +43,4 @@ jobs:
           path: .render-work
           retention-days: 2
           if-no-files-found: ignore
-# v8 reference render trigger
+# v9 exact-word-timing render trigger
