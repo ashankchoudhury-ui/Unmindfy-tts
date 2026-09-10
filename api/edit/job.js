@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     }
 
     const rows = await supabase(
-      'content_pipeline?tts_status=eq.Ready&edit_status=eq.Not%20Edited&tts_audio_url=not.is.null&select=id,script,tts_audio_url,created_at&order=created_at.asc&limit=1'
+      'content_pipeline?tts_status=eq.Ready&or=(edit_status.eq.Not%20Edited,edit_status.eq.Failed)&tts_audio_url=not.is.null&select=id,script,tts_audio_url,created_at&order=created_at.asc&limit=1'
     );
 
     if (!rows?.length) return res.status(200).json({ ok: true, job: null });
