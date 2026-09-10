@@ -48,15 +48,41 @@ async function streamTypes(file) {
 }
 
 async function driveList(token, q) {
-  const url = new URL('https://www.googleapis.com/drive/v3/files');
-  url.searchParams.set('q', q);
-  url.searchParams.set('pageSize', '1000');
-  url.searchParams.set('orderBy', 'modifiedTime desc');
-  url.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime,webViewLink,parents)');
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  const data = await response.json();
-  if (!response.ok) throw new Error(`Drive list ${response.status}: ${JSON.stringify(data)}`);
-  return data.files || [];
+  const files = [];
+  let pageToken = null;
+  do {
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', q);
+    url.searchParams.set('pageSize', '1000');
+    url.searchParams.set('orderBy', 'modifiedTime desc');
+    url.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink,parents,shortcutDetails)');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(`Drive list ${response.status}: ${JSON.stringify(data)}`);
+    files.push(...(data.files || []));
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return files;
+}
+
+async function folderDescendants(token, folderId, maxDepth = 4) {
+  const out = [];
+  let frontier = [{ id: folderId, depth: 0 }];
+  while (frontier.length) {
+    const next = [];
+    for (const folder of frontier) {
+      const children = await driveList(token, `'${folder.id}' in parents and trashed = false`);
+      for (const child of children) {
+        out.push(child);
+        if (child.mimeType === 'application/vnd.google-apps.folder' && folder.depth < maxDepth) {
+          next.push({ id: child.id, depth: folder.depth + 1 });
+        }
+      }
+    }
+    frontier = next;
+  }
+  return out;
 }
 
 async function ensureFolder(token, name, parentId = null) {
@@ -113,15 +139,12 @@ function wordsOf(sentence) {
   return sentence.split(/\s+/).filter(Boolean).map(word => word.replace(/^[“”"']+|[“”"']+$/g, ''));
 }
 
-// Reference typography: Courier-family, 60 px, narrow ~500 px column,
-// white text with a very small dark edge. The lines are left aligned and
-// non-final lines are justified, which creates the characteristic wide gaps.
 const FONT_SIZE = 60;
 const CHAR_W = 36;
 const BOX_W = 504;
 const X = 288;
 const Y = 133;
-const MAX_CHARS = Math.floor(BOX_W / CHAR_W); // 14
+const MAX_CHARS = Math.floor(BOX_W / CHAR_W);
 
 function layoutWords(words) {
   const lines = [];
@@ -161,7 +184,6 @@ function captionText(revealed) {
 }
 
 function assEscape(text) {
-  // Do not escape backslashes here: the \N line-break token is intentional.
   return text.replaceAll('{', '\\{').replaceAll('}', '\\}');
 }
 
@@ -179,23 +201,13 @@ async function makeAss(script, totalDuration, file) {
   const wordSets = sentences.map(wordsOf);
   const sentenceWeights = wordSets.map(words => Math.max(1, words.reduce((n, w) => n + w.replace(/[^A-Za-z0-9]/g, '').length, 0)));
   const totalWeight = sentenceWeights.reduce((a, b) => a + b, 0) || 1;
-
   const ass = [
-    '[Script Info]',
-    'ScriptType: v4.00+',
-    'PlayResX: 1080',
-    'PlayResY: 644',
-    'WrapStyle: 2',
-    'ScaledBorderAndShadow: yes',
-    '',
+    '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 644', 'WrapStyle: 2', 'ScaledBorderAndShadow: yes', '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    'Style: Ref,Courier,60,&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.2,1.2,7,288,288,133,1',
-    '',
-    '[Events]',
-    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'
+    'Style: Ref,Courier,60,&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.2,1.2,7,288,288,133,1', '',
+    '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'
   ];
-
   let cursor = 0;
   for (let s = 0; s < wordSets.length; s++) {
     const words = wordSets[s];
@@ -205,18 +217,15 @@ async function makeAss(script, totalDuration, file) {
     const sum = weights.reduce((a, b) => a + b, 0) || 1;
     const revealed = [];
     let local = cursor;
-
     for (let i = 0; i < words.length; i++) {
       revealed.push(words[i]);
       const slice = sentenceDuration * weights[i] / sum;
       const end = i === words.length - 1 ? cursor + sentenceDuration : local + slice;
-      const text = captionText(revealed);
-      ass.push(`Dialogue: 0,${assTime(local)},${assTime(end)},Ref,,0,0,0,,{\\pos(${X},${Y})}${assEscape(text)}`);
+      ass.push(`Dialogue: 0,${assTime(local)},${assTime(end)},Ref,,0,0,0,,{\\pos(${X},${Y})}${assEscape(captionText(revealed))}`);
       local = end;
     }
     cursor += sentenceDuration;
   }
-
   await fs.writeFile(file, `${ass.join('\n')}\n`, 'utf8');
 }
 
@@ -227,33 +236,20 @@ async function makeBackground(source, totalDuration, firstSentenceDuration, outp
   const blackLen = Math.min(2.7, Math.max(1.8, totalDuration * 0.06));
   const blackStart = Math.min(firstSentenceDuration, Math.max(0, totalDuration - 0.8));
   const blackEnd = Math.min(totalDuration, blackStart + blackLen);
-
   const filter = [
     'scale=1080:644:force_original_aspect_ratio=increase',
-    'crop=1080:644:(in_w-1080)/2:(in_h-644)/2',
-    'setsar=1',
-    'fps=30',
-    'eq=contrast=0.96:brightness=-0.015:saturation=0.88',
-    'gblur=sigma=0.12',
-    'vignette=PI/7',
+    'crop=1080:644:(in_w-1080)/2:(in_h-644)/2', 'setsar=1', 'fps=30',
+    'eq=contrast=0.96:brightness=-0.015:saturation=0.88', 'gblur=sigma=0.12', 'vignette=PI/7',
     `drawbox=x=0:y=0:w=iw:h=ih:color=black@1:t=fill:enable='between(t,${blackStart.toFixed(3)},${blackEnd.toFixed(3)})'`
   ].join(',');
-
-  await run('ffmpeg', [
-    '-y', '-ss', String(start), '-stream_loop', '-1', '-i', source,
-    '-t', String(totalDuration), '-vf', filter, '-an',
-    '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', output
-  ]);
+  await run('ffmpeg', ['-y', '-ss', String(start), '-stream_loop', '-1', '-i', source, '-t', String(totalDuration), '-vf', filter, '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', output]);
 }
 
 async function buildAudio(voice, music, totalDuration, output) {
-  if (!music) throw new Error('No music track found in UNMINDY/Music.');
+  if (!music) throw new Error('No music track found in UNMINDY/Music or Drive.');
   await run('ffmpeg', [
     '-y', '-i', voice, '-stream_loop', '-1', '-i', music,
-    '-filter_complex',
-    '[0:a]loudnorm=I=-16:TP=-1.5:LRA=11[voice];' +
-    '[1:a]highpass=f=45,lowpass=f=11000,volume=0.11,afade=t=in:st=0:d=1.2[music];' +
-    '[voice][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]',
+    '-filter_complex', '[0:a]loudnorm=I=-16:TP=-1.5:LRA=11[voice];[1:a]highpass=f=45,lowpass=f=11000,volume=0.11,afade=t=in:st=0:d=1.2[music];[voice][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]',
     '-map', '[a]', '-t', String(totalDuration), '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2', output
   ]);
 }
@@ -264,8 +260,7 @@ async function burnAndMux(background, captions, audio, totalDuration, output) {
     '-y', '-i', background, '-i', audio,
     '-vf', `subtitles='${captionPath}':fontsdir=/usr/share/fonts/type1/texlive-fonts-recommended`,
     '-map', '0:v:0', '-map', '1:a:0', '-t', String(totalDuration),
-    '-c:v', 'libx264', '-preset', 'medium', '-crf', '19', '-pix_fmt', 'yuv420p',
-    '-c:a', 'copy', '-movflags', '+faststart', '-fps_mode', 'cfr', output
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '19', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', '-fps_mode', 'cfr', output
   ]);
 }
 
@@ -284,7 +279,6 @@ async function main() {
   const data = await api('/api/edit/job');
   const job = data.job;
   if (!job) { console.log('No pending edit job.'); return; }
-
   await fs.rm(WORK, { recursive: true, force: true });
   await fs.mkdir(FOOTAGE, { recursive: true });
   await fs.mkdir(MUSIC, { recursive: true });
@@ -293,20 +287,27 @@ async function main() {
     const tokenData = await api('/api/drive/token');
     const token = tokenData.access_token;
     if (!token) throw new Error('Drive token endpoint returned no access token');
-
     const root = await ensureFolder(token, 'UNMINDY');
     const footageFolder = await ensureFolder(token, 'Footage', root.id);
     const musicFolder = await ensureFolder(token, 'Music', root.id);
     const exportsFolder = await ensureFolder(token, 'Exports', root.id);
 
-    const files = await driveList(token, `'${footageFolder.id}' in parents and trashed = false`);
-    const musicFiles = await driveList(token, `'${musicFolder.id}' in parents and trashed = false`);
+    const files = await folderDescendants(token, footageFolder.id);
+    const musicFiles = await folderDescendants(token, musicFolder.id);
     const videoExt = /\.(mp4|mov|mkv|webm|m4v)$/i;
     const audioExt = /\.(mp3|wav|m4a|aac|ogg|flac)$/i;
     const videos = files.filter(f => videoExt.test(f.name) || String(f.mimeType || '').startsWith('video/'));
     const tracks = musicFiles.filter(f => audioExt.test(f.name) || String(f.mimeType || '').startsWith('audio/'));
     if (!videos.length) throw new Error('No video footage found in UNMINDY/Footage.');
-    if (!tracks.length) throw new Error('No music file found in UNMINDY/Music.');
+    if (!tracks.length) {
+      const allFiles = await driveList(token, 'trashed = false');
+      const globalTracks = allFiles.filter(f => audioExt.test(f.name) || String(f.mimeType || '').startsWith('audio/'));
+      if (globalTracks.length) {
+        console.log(`No Music-folder audio found; using ${globalTracks[0].name} found elsewhere in Drive.`);
+        tracks.push(...globalTracks);
+      }
+    }
+    if (!tracks.length) throw new Error('No music file found in Drive or UNMINDY/Music.');
 
     videos.sort((a, b) => Number(b.size || 0) - Number(a.size || 0));
     tracks.sort((a, b) => Number(b.size || 0) - Number(a.size || 0));
@@ -314,7 +315,6 @@ async function main() {
     const music = tracks[0];
     console.log(`Footage: ${footage.name}`);
     console.log(`Music: ${music.name}`);
-
     await downloadDriveFile(token, footage, path.join(FOOTAGE, footage.name));
     await downloadDriveFile(token, music, path.join(MUSIC, music.name));
 
@@ -328,7 +328,6 @@ async function main() {
     const sentenceWords = splitSentences(job.script).map(wordsOf);
     const weights = sentenceWords.map(words => Math.max(1, words.reduce((n, w) => n + w.replace(/[^A-Za-z0-9]/g, '').length, 0)));
     const firstSentenceDuration = totalDuration * (weights[0] || 1) / (weights.reduce((a, b) => a + b, 0) || 1);
-
     const bg = path.join(WORK, 'background.mp4');
     const audio = path.join(WORK, 'audio.m4a');
     const ass = path.join(WORK, 'captions.ass');
@@ -341,23 +340,15 @@ async function main() {
     await fs.copyFile(final, OUT);
     await verifyOutput(OUT, totalDuration);
 
-    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-v4.mp4`, exportsFolder.id);
+    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-v5.mp4`, exportsFolder.id);
     const exportUrl = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
-    await api('/api/edit/complete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ record_id: job.id, status: 'Ready', export_drive_file_id: uploaded.id, export_drive_url: exportUrl })
-    });
+    await api('/api/edit/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: job.id, status: 'Ready', export_drive_file_id: uploaded.id, export_drive_url: exportUrl }) });
     console.log(`Exported: ${exportUrl}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     try {
-      await api('/api/edit/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record_id: job.id, status: 'Failed', error: message.slice(0, 4000) })
-      });
+      await api('/api/edit/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: job.id, status: 'Failed', error: message.slice(0, 4000) }) });
     } catch (updateError) {
       console.error(`Failed to report edit failure: ${updateError}`);
     }
