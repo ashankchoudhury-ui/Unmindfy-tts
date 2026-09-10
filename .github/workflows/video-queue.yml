@@ -27,23 +27,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install FFmpeg
+      - name: Install FFmpeg and Courier-compatible fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
-      - name: Prepare renderer compatibility
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('scripts/render-reel.mjs')
-          s=p.read_text()
-          s=s.replace('jobAudioUrl','globalThis.jobAudio')
-          old="const tracks=allM.filter(f=>(ar.test(f.name)||String(f.mimeType||'').startsWith('audio/'))&&!/(tts|voice|narration|speech|dialogue|mic)/i.test(f.name)).sort((a,b)=>Number(b.modifiedTime?Date.parse(b.modifiedTime):0)-Number(a.modifiedTime?Date.parse(a.modifiedTime):0));"
-          new="const tracks=allM.filter(f=>(ar.test(f.name)||vr.test(f.name)||String(f.mimeType||'').startsWith('audio/')||String(f.mimeType||'').startsWith('video/'))&&!/(tts|voice|narration|speech|dialogue|mic)/i.test(f.name)).sort((a,b)=>Number(b.modifiedTime?Date.parse(b.modifiedTime):0)-Number(a.modifiedTime?Date.parse(a.modifiedTime):0));"
-          if old in s:
-              s=s.replace(old,new)
-          p.write_text(s)
-          PY
+          sudo apt-get install -y ffmpeg fonts-urw-base35
+          fc-match Courier
+          ffmpeg -hide_banner -filters | grep subtitles
       - name: Render pending reel
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
@@ -56,4 +45,3 @@ jobs:
           path: .render-work
           retention-days: 2
           if-no-files-found: ignore
-# v11 render compatibility trigger
