@@ -6,6 +6,9 @@
     },
     "api/cron.js": {
       "maxDuration": 60
+    },
+    "api/edit/transcribe.js": {
+      "maxDuration": 60
     }
   }
 }
