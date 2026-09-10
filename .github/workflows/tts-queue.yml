@@ -47,4 +47,4 @@ jobs:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: node scripts/render-reel.mjs
 
-# rerun final after Vercel deployment
+# final attempt after confirmed Vercel production deploy
