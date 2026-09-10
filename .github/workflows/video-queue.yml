@@ -1,0 +1,49 @@
+name: UNMINDY Video Queue
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/render-reel.mjs"
+      - "api/edit/**"
+      - "api/drive/token.js"
+      - ".github/workflows/video-queue.yml"
+
+concurrency:
+  group: unmindfy-video-queue
+  cancel-in-progress: false
+
+jobs:
+  render-reel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Render pending reel
+        env:
+          UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
+        run: node scripts/render-reel.mjs
+
+      - name: Upload render log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unmindfy-video-render-log
+          path: .render-work
+          retention-days: 2
+          if-no-files-found: ignore
