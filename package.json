@@ -3,7 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": { "node": ">=22 <23" },
   "dependencies": {
-    "googleapis": "latest"
+    "googleapis": "178.1.1"
   }
 }
