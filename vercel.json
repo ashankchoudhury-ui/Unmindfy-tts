@@ -1,14 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/tts.js": {
-      "maxDuration": 60
-    },
-    "api/cron.js": {
-      "maxDuration": 60
-    },
-    "api/edit/transcribe.js": {
-      "maxDuration": 60
-    }
+    "api/tts.js": { "maxDuration": 300 },
+    "api/cron.js": { "maxDuration": 300 },
+    "api/edit/transcribe.js": { "maxDuration": 300 },
+    "api/edit/job.js": { "maxDuration": 60 },
+    "api/edit/complete.js": { "maxDuration": 60 },
+    "api/drive/token.js": { "maxDuration": 60 },
+    "api/drive/files.js": { "maxDuration": 60 },
+    "api/drive/callback.js": { "maxDuration": 60 },
+    "api/drive/auth.js": { "maxDuration": 60 }
   }
 }
