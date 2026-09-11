@@ -6,3 +6,4 @@ Automated TTS, captioning, video rendering, and Drive export pipeline.
 <!-- drive-export-retry -->
 <!-- final-quality-render -->
 <!-- v18-caption-quality -->
+<!-- corrected-tokenization-rerender -->
