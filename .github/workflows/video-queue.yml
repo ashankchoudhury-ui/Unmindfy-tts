@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: unmindfy-video-final-20260911-v2
+      group: unmindfy-video-final-20260911-v3
       cancel-in-progress: true
     steps:
       - name: Checkout
@@ -19,45 +19,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install FFmpeg, modern PocketSphinx and Courier-compatible fonts
+      - name: Install FFmpeg and Courier-compatible fonts
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg python3-venv fonts-urw-base35
-          python3 -m venv .venv
-          .venv/bin/pip install -q --upgrade pip
-          .venv/bin/pip install -q pocketsphinx
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          sudo apt-get install -y ffmpeg fonts-urw-base35
           command -v ffmpeg
           command -v ffprobe
-          command -v pocketsphinx
-          ffmpeg -version | head -n 1
-          ffprobe -version | head -n 1
-          pocketsphinx -h >/dev/null
           fc-match Courier
-      - name: Patch renderer to use local forced alignment
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('scripts/render-reel.mjs')
-          s = p.read_text()
-          start = s.index('async function wordTimings(script, audioUrl) {')
-          end = s.index('\n\nasync function makeAssFromTimings', start)
-          replacement = r'''async function wordTimings(script, audioUrl) {
-            const audioPath = path.join(WORK, 'tts.wav');
-            const r = await fetch(audioUrl);
-            if (!r.ok || !r.body) throw new Error(`TTS audio download failed: ${r.status}`);
-            await fs.mkdir(WORK, { recursive: true });
-            await pipeline(r.body, (await import('node:fs')).createWriteStream(audioPath));
-            const aligned = await run('python3', ['scripts/local-word-timings.py', audioPath, cleanScript(script)]);
-            const words = wordsOf(script);
-            const timings = JSON.parse(aligned.stdout.trim());
-            if (!Array.isArray(timings) || timings.length !== words.length) {
-              throw new Error(`Local forced alignment word count mismatch: timings=${timings?.length ?? 0} script=${words.length}`);
-            }
-            return timings.map((w, i) => ({ text: words[i], start: Math.max(0, Number(w.start) || 0), end: Math.max(Number(w.end) || 0, (Number(w.start) || 0) + 0.08), i }));
-          }'''
-          p.write_text(s[:start] + replacement + s[end:])
-          PY
       - name: Render final Reel
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
