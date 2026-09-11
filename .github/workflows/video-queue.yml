@@ -2,15 +2,13 @@ name: UNMINDY Video Queue
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 jobs:
   render-reel:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: unmindfy-video-final-20260911-v5
+      group: unmindfy-video-final-20260911-v4
       cancel-in-progress: true
     steps:
       - name: Checkout
