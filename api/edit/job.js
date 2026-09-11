@@ -29,11 +29,11 @@ async function supabase(path, options = {}) {
 
 function eligible(record, staleBeforeMs) {
   const attempts = Number(record.edit_attempts || 0);
-  if (record.edit_status === 'Not Edited') return true;
+  if (record.edit_status === 'Not Edited') return attempts < MAX_EDIT_ATTEMPTS;
   if (record.edit_status === 'Failed') return attempts < MAX_EDIT_ATTEMPTS;
   if (record.edit_status === 'Editing') {
     const started = Date.parse(record.edit_started_at || record.updated_at || '');
-    return Number.isFinite(started) && started < staleBeforeMs;
+    return attempts < MAX_EDIT_ATTEMPTS && Number.isFinite(started) && started < staleBeforeMs;
   }
   return false;
 }
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
 
     const staleBeforeMs = Date.now() - STALE_AFTER_MINUTES * 60 * 1000;
     const candidates = await supabase(
-      'content_pipeline?tts_status=eq.Ready&tts_audio_url=not.is.null&select=id,script,tts_audio_url,created_at,updated_at,edit_status,edit_attempts,edit_started_at&order=created_at.asc&limit=25'
+      'content_pipeline?tts_status=eq.Ready&tts_audio_url=not.is.null&select=id,reel,script,tts_audio_url,created_at,updated_at,edit_status,edit_attempts,edit_started_at,render_footage_file_id,render_music_file_id&order=created_at.asc&limit=25'
     );
     const candidate = (candidates || []).find(record => eligible(record, staleBeforeMs));
     if (!candidate) return res.status(200).json({ ok: true, job: null });
