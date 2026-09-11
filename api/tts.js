@@ -30,8 +30,10 @@ async function supabaseRequest(path, options = {}) {
       ...(options.headers || {})
     }
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`Supabase ${response.status}: ${JSON.stringify(data)}`);
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { throw new Error(`Supabase returned invalid JSON: ${text}`); }
+  if (!response.ok) throw new Error(`Supabase ${response.status}: ${text}`);
   return data;
 }
 
@@ -82,10 +84,7 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
 }
 
 function normalizeTranscript(script) {
-  return script
-    .replace(/\s*\n\s*/g, ' ')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
+  return script.replace(/\s*\n\s*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
 function getVoicePrompt(script) {
@@ -126,7 +125,6 @@ function extractGeminiAudio(interaction) {
       }
     }
   }
-
   return null;
 }
 
@@ -146,16 +144,13 @@ export default async function handler(req, res) {
 
     const record = await getRecord(recordId);
     if (!record) return json(res, 404, { ok: false, error: 'Content pipeline record not found' });
-
-    const script = record.script;
-    if (!script || typeof script !== 'string') throw new Error('Supabase script field is empty');
-    const cleanScript = normalizeTranscript(script);
-    if (!cleanScript) throw new Error('Supabase script field is empty');
-    if (cleanScript.length > MAX_SCRIPT_CHARS) throw new Error(`Script is too long; maximum is ${MAX_SCRIPT_CHARS} characters`);
-
     if (record.tts_status === 'Ready' && record.tts_audio_url) {
       return json(res, 200, { ok: true, recordId, audioUrl: record.tts_audio_url, model: MODEL, alreadyReady: true });
     }
+
+    const cleanScript = normalizeTranscript(String(record.script || ''));
+    if (!cleanScript) throw new Error('Supabase script field is empty');
+    if (cleanScript.length > MAX_SCRIPT_CHARS) throw new Error(`Script is too long; maximum is ${MAX_SCRIPT_CHARS} characters`);
 
     await updateRecord(recordId, { tts_status: 'Generating' });
 
@@ -179,7 +174,7 @@ export default async function handler(req, res) {
 
     const audio = extractGeminiAudio(gemini);
     if (!audio?.data) {
-      const stepTypes = Array.isArray(gemini?.steps) ? gemini.steps.map((step) => step?.type).filter(Boolean) : [];
+      const stepTypes = Array.isArray(gemini?.steps) ? gemini.steps.map(step => step?.type).filter(Boolean) : [];
       throw new Error(`Gemini returned no audio data (steps: ${stepTypes.join(',') || 'none'})`);
     }
 
@@ -188,10 +183,12 @@ export default async function handler(req, res) {
     const audioPath = `tts/${recordId}.wav`;
     const audioUrl = await uploadAudio(audioPath, wav);
 
-    await updateRecord(recordId, { tts_audio_url: audioUrl, tts_status: 'Ready' });
+    await updateRecord(recordId, { tts_audio_url: audioUrl, tts_status: 'Ready', tts_started_at: null });
     return json(res, 200, { ok: true, recordId, audioUrl, model: MODEL });
   } catch (error) {
-    if (recordId) { try { await updateRecord(recordId, { tts_status: 'Error' }); } catch {} }
+    if (recordId) {
+      try { await updateRecord(recordId, { tts_status: 'Error', tts_started_at: null }); } catch {}
+    }
     console.error('UNMINDY TTS error:', error);
     return json(res, 500, { ok: false, error: error instanceof Error ? error.message : 'TTS generation failed' });
   }
