@@ -1,8 +1,5 @@
-# Unmindfy TTS
+# UNMINDY TTS
 
-Gemini 3.1 Flash TTS service for the Unmindy content pipeline.
+Automated TTS, captioning, video rendering, and Drive export pipeline.
 
-Deployment configuration is managed through Vercel and the `main` branch.
-
-<!-- deployment verification -->
-<!-- edit-api deployment verification -->
+<!-- visual-quality-rerender -->
