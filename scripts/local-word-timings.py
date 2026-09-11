@@ -16,7 +16,10 @@ def prepare_audio(audio):
         dst = Path(f.name)
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(dst)],
+            [
+                "ffmpeg", "-y", "-v", "error", "-i", str(src),
+                "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(dst)
+            ],
             check=True,
         )
         return dst
@@ -28,11 +31,20 @@ def prepare_audio(audio):
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: local-word-timings.py AUDIO SCRIPT")
-    audio, script = sys.argv[1], script = sys.argv[2]
-    target = [w.strip("\"'“”.,!?;:()[]{}…") for w in re.split(r"\s+", script.strip()) if w.strip()]
+
+    audio = sys.argv[1]
+    script = sys.argv[2]
+    target = [
+        w.strip("\"'“”.,!?;:()[]{}…")
+        for w in re.split(r"\s+", script.strip())
+        if w.strip()
+    ]
+
+    if not target:
+        raise SystemExit("script must contain at least one word")
+
     prepared = prepare_audio(audio)
     try:
-        # PocketSphinx align performs genuine forced alignment of the known script to the actual audio.
         p = subprocess.run(
             ["pocketsphinx", "align", str(prepared), " ".join(target)],
             check=True,
@@ -50,13 +62,9 @@ def main():
             if not text or start is None:
                 continue
             start = float(start)
-            if end_value is not None:
-                end = float(end_value)
-            elif dur is not None:
-                end = start + float(dur)
-            else:
-                end = start + 0.08
+            end = float(end_value) if end_value is not None else start + float(dur) if dur is not None else start + 0.08
             recognized.append({"text": text, "start": start, "end": max(end, start + 0.08)})
+
         if len(recognized) < len(target):
             raise RuntimeError(f"Forced alignment returned {len(recognized)}/{len(target)} words")
 
@@ -70,10 +78,14 @@ def main():
                     hit = pidx
                     break
             if hit is None:
-                raise RuntimeError(f"Forced alignment mismatch at word {i+1}/{len(target)}: {word!r}; got {recognized[j:j+4]}")
+                raise RuntimeError(
+                    f"Forced alignment mismatch at word {i + 1}/{len(target)}: "
+                    f"{word!r}; got {recognized[j:j + 4]}"
+                )
             r = recognized[hit]
             out.append({"text": word, "start": r["start"], "end": r["end"], "i": i})
             j = hit + 1
+
         print(json.dumps(out, separators=(",", ":")))
     finally:
         prepared.unlink(missing_ok=True)
