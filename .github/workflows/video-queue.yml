@@ -19,11 +19,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install media tools and local ASR
+      - name: Install media tools and ASR
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35
-          python3 -m pip install --user --disable-pip-version-check pocketsphinx
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3-pocketsphinx
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
           fc-match Courier
@@ -42,4 +41,3 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           node scripts/render-reel.mjs
-      # Final production retry with verified audio-derived caption timing.
