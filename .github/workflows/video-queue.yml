@@ -21,14 +21,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install FFmpeg and Courier-compatible fonts
+      - name: Install FFmpeg, fonts, and forced-alignment fallback
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35 pocketsphinx
+          sudo apt-get install -y ffmpeg fonts-urw-base35 pocketsphinx python3
           command -v ffmpeg
           command -v ffprobe
           command -v pocketsphinx
+          command -v python3
           fc-match Courier
       - name: Configure Gemini native transcription bridge
         env:
@@ -40,6 +41,10 @@ jobs:
           set -euo pipefail
           test -n "$GEMINI_API_KEY_1$GEMINI_API_KEY_2$GEMINI_API_KEY_3$GEMINI_API_KEY" || { echo 'No Gemini GitHub Actions secrets configured'; exit 1; }
           cat > /tmp/gemini-render-bridge.mjs <<'EOF'
+          import { writeFile, unlink } from 'node:fs/promises';
+          import { execFile } from 'node:child_process';
+          import { promisify } from 'node:util';
+          const execFileP = promisify(execFile);
           const realFetch = globalThis.fetch;
           const API = 'https://generativelanguage.googleapis.com';
           const MODEL = 'gemini-3.5-transcribe';
@@ -70,12 +75,13 @@ jobs:
             }
             return out;
           }
-          async function transcribe(audioUrl, script, key) {
+          async function transcribeWithGemini(audioUrl, script, key) {
             let uploadedName = null;
             try {
               const ar = await realFetch(audioUrl);
               if (!ar.ok) throw new Error(`Audio download ${ar.status}`);
               const bytes = Buffer.from(await ar.arrayBuffer());
+              if (bytes.length > 25 * 1024 * 1024) throw new Error(`Audio too large: ${bytes.length}`);
               const start = await realFetch(`${API}/upload/v1beta/files`, {
                 method: 'POST',
                 headers: {
@@ -115,11 +121,24 @@ jobs:
               if (!gr.ok) { const e = new Error(`Gemini transcription ${gr.status}: ${JSON.stringify(gd)}`); e.status = gr.status; throw e; }
               const raw = annotations(gd);
               if (!raw.length) throw new Error('Gemini returned no word timestamps');
-              return { words: align(script, raw) };
+              return align(script, raw);
             } finally {
-              if (uploadedName) {
-                await realFetch(`${API}/v1beta/${uploadedName}`, { method: 'DELETE', headers: { 'x-goog-api-key': key } }).catch(() => {});
-              }
+              if (uploadedName) await realFetch(`${API}/v1beta/${uploadedName}`, { method: 'DELETE', headers: { 'x-goog-api-key': key } }).catch(() => {});
+            }
+          }
+          async function forcedAlign(audioUrl, script) {
+            const response = await realFetch(audioUrl);
+            if (!response.ok) throw new Error(`Audio download for forced alignment failed: ${response.status}`);
+            const bytes = Buffer.from(await response.arrayBuffer());
+            const path = `/tmp/unmindfy-forced-${Date.now()}.wav`;
+            try {
+              await writeFile(path, bytes);
+              const { stdout } = await execFileP('python3', ['scripts/local-word-timings.py', path, script], { maxBuffer: 4 * 1024 * 1024 });
+              const words = JSON.parse(stdout.trim());
+              if (!Array.isArray(words) || !words.length) throw new Error('Forced alignment returned no words');
+              return words;
+            } finally {
+              await unlink(path).catch(() => {});
             }
           }
           globalThis.fetch = async (input, init = {}) => {
@@ -129,13 +148,22 @@ jobs:
               let last;
               for (const key of keys) {
                 try {
-                  return new Response(JSON.stringify({ ok: true, model: MODEL, ...await transcribe(body.audioUrl, body.script, key) }), { status: 200, headers: { 'content-type': 'application/json' } });
+                  const words = await transcribeWithGemini(body.audioUrl, body.script, key);
+                  return new Response(JSON.stringify({ ok: true, model: MODEL, words, timing_source: 'gemini_word_timestamps' }), { status: 200, headers: { 'content-type': 'application/json' } });
                 } catch (e) {
                   last = e;
                   if ([401, 403, 429].includes(e?.status)) continue;
+                  // A transcript/alignment mismatch is also allowed to use the local forced-align fallback.
                 }
               }
-              throw last || new Error('No Gemini keys configured');
+              try {
+                console.log(`Gemini transcription unavailable; using PocketSphinx forced alignment fallback: ${last?.message || 'unknown Gemini error'}`);
+                const words = await forcedAlign(body.audioUrl, body.script);
+                return new Response(JSON.stringify({ ok: true, model: 'pocketsphinx-forced-align', words, timing_source: 'pocketsphinx_forced_alignment' }), { status: 200, headers: { 'content-type': 'application/json' } });
+              } catch (fallbackError) {
+                const message = `Gemini and forced alignment both failed. Gemini: ${last?.message || 'unknown'}; fallback: ${fallbackError?.message || fallbackError}`;
+                throw new Error(message);
+              }
             }
             return realFetch(input, init);
           };
