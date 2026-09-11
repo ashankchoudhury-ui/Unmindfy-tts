@@ -16,13 +16,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install FFmpeg and Courier-compatible fonts
+      - name: Install FFmpeg, Courier-compatible fonts, and local ASR
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-urw-base35
+          python3 -m pip install --break-system-packages pocketsphinx
           fc-match Courier
-      # Reel #3 production render: real word timings + CRF 12 final encode.
-      - name: Render pending reel
+      - name: Render pending reel with local word timing fallback
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
-        run: node scripts/render-reel.mjs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/render-reel.mjs')
+          s = p.read_text()
+          old = 'const timings = await wordTimings(job.script, job.tts_audio_url);'
+          new = "const timings = JSON.parse((await run('python3', ['scripts/local-word-timings.py', voice, job.script])).stdout);"
+          if old not in s:
+              raise SystemExit('Renderer timing hook not found; refusing to run.')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          node scripts/render-reel.mjs
