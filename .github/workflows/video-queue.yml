@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: unmindfy-video-final-20260911-v3
+      group: unmindfy-video-final-20260911-v4
       cancel-in-progress: true
     steps:
       - name: Checkout
@@ -26,7 +26,31 @@ jobs:
           command -v ffmpeg
           command -v ffprobe
           fc-match Courier
+      - name: Configure Gemini native transcription bridge
+        env:
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cat > /tmp/gemini-render-bridge.mjs <<'EOF'
+          const realFetch = globalThis.fetch;
+          const API = 'https://generativelanguage.googleapis.com';
+          const MODEL = 'gemini-3.5-transcribe';
+          const keys = ['GEMINI_API_KEY_1','GEMINI_API_KEY_2','GEMINI_API_KEY_3','GEMINI_API_KEY'].map(k => process.env[k]).filter(Boolean);
+          const sec = v => { const m=String(v??'').match(/^([0-9.]+)s$/); return m ? Number(m[1]) : NaN; };
+          const norm = v => String(v||'').toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9']+/g,'').trim();
+          function annotations(data){const a=[];for(const step of data?.steps||[])for(const content of step?.content||[])for(const x of content?.annotations||[])if(x?.type==='word_info'){const s=sec(x.start_offset),e=sec(x.end_offset),t=String(x.text||'').trim();if(t&&Number.isFinite(s)&&Number.isFinite(e)&&e>=s)a.push({text:t,start:s,end:e});}return a;}
+          function align(script,raw){const target=String(script).replace(/\s+/g,' ').trim().split(' ').filter(Boolean),r=raw.map(x=>({...x,k:norm(x.text)})),ans=[];let c=0;for(const word of target){const k=norm(word);let hit=-1;for(let j=c;j<Math.min(r.length,c+10);j++){if(r[j].k===k){hit=j;break;}}if(hit<0)throw new Error(`No real timestamp for script word: ${word}`);ans.push({text:word,start:r[hit].start,end:r[hit].end});c=hit+1;}return ans;}
+          async function transcribe(audioUrl,script,key){const ar=await realFetch(audioUrl);if(!ar.ok)throw new Error(`Audio download ${ar.status}`);const bytes=Buffer.from(await ar.arrayBuffer());const start=await realFetch(`${API}/upload/v1beta/files`,{method:'POST',headers:{'x-goog-api-key':key,'X-Goog-Upload-Protocol':'resumable','X-Goog-Upload-Command':'start','X-Goog-Upload-Header-Content-Length':String(bytes.length),'X-Goog-Upload-Header-Content-Type':'audio/wav','Content-Type':'application/json'},body:JSON.stringify({file:{display_name:`unmindy-render-${Date.now()}.wav`}})});const st=await start.text();if(!start.ok){const e=new Error(`Gemini Files start ${start.status}: ${st}`);e.status=start.status;throw e;}const uploadUrl=start.headers.get('x-goog-upload-url');if(!uploadUrl)throw new Error('No Gemini upload URL');const fin=await realFetch(uploadUrl,{method:'POST',headers:{'Content-Length':String(bytes.length),'X-Goog-Upload-Offset':'0','X-Goog-Upload-Command':'upload, finalize'},body:bytes});const fd=await fin.json().catch(()=>({}));if(!fin.ok){const e=new Error(`Gemini Files upload ${fin.status}: ${JSON.stringify(fd)}`);e.status=fin.status;throw e;}const gr=await realFetch(`${API}/v1beta/interactions`,{method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({model:MODEL,input:[{type:'audio',uri:fd.file.uri,mime_type:'audio/wav'}],generation_config:{transcription_config:{mode:{type:'verbatim',timestamp_granularities:['word']},language_codes:['en-IN']}}})});const gd=await gr.json().catch(()=>({}));if(!gr.ok){const e=new Error(`Gemini transcription ${gr.status}: ${JSON.stringify(gd)}`);e.status=gr.status;throw e;}const raw=annotations(gd);if(!raw.length)throw new Error('Gemini returned no word timestamps');return {words:align(script,raw),key_slot:keys.indexOf(key)+1};}
+          globalThis.fetch = async (input,init={}) => { const url=typeof input==='string'?input:input?.url||String(input); if(url.includes('/api/edit/transcribe')) { const body=typeof init.body==='string'?JSON.parse(init.body):{}; let last; for(const key of keys){try{return new Response(JSON.stringify({ok:true,model:MODEL,...await transcribe(body.audioUrl,body.script,key)}),{status:200,headers:{'content-type':'application/json'}});}catch(e){last=e;if([401,403,429].includes(e.status))continue;}} throw last||new Error('No Gemini keys configured'); } return realFetch(input,init); };
+          EOF
+          test -n "$GEMINI_API_KEY_1$GEMINI_API_KEY_2$GEMINI_API_KEY_3$GEMINI_API_KEY" || (echo 'No Gemini GitHub Actions secrets configured' && exit 1)
       - name: Render final Reel
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
-        run: node scripts/render-reel.mjs
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node --import=/tmp/gemini-render-bridge.mjs scripts/render-reel.mjs
