@@ -19,10 +19,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify media tools
+      - name: Install FFmpeg and Courier-compatible fonts
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-urw-base35
           ffmpeg -version | head -n 1
-          fc-match Courier || true
+          ffprobe -version | head -n 1
+          fc-match Courier
       - name: Render pending reel
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
