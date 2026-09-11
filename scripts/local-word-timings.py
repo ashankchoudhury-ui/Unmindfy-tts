@@ -1,11 +1,9 @@
 import json
-import os
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from pocketsphinx import AudioFile
 
 
 def norm(s):
@@ -34,33 +32,42 @@ def main():
     target = [w.strip("\"'“”.,!?;:()[]{}") for w in re.split(r"\s+", script.strip()) if w.strip()]
     prepared = prepare_audio(audio)
     try:
+        # PocketSphinx's align command performs genuine audio-to-script forced alignment.
+        p = subprocess.run(
+            ["pocketsphinx", "align", str(prepared), *target],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(p.stdout)
+        raw = data.get("w") or []
         recognized = []
-        for phrase in AudioFile(audio_file=str(prepared), no_search=True, frate=100):
-            for seg in phrase.segments(detailed=True):
-                word = str(seg.word)
-                if word in {"<s>", "</s>", "<sil>", "<silence>"}:
-                    continue
-                start = float(seg.start_frame) / 100.0
-                end = float(seg.end_frame + 1) / 100.0
-                recognized.append({"text": word, "start": start, "end": max(end, start + 0.08)})
-        if not recognized:
-            raise RuntimeError("Local ASR returned no word timings")
+        for item in raw:
+            text = str(item.get("t") or item.get("word") or "").strip()
+            start = item.get("b")
+            dur = item.get("d")
+            if not text or start is None:
+                continue
+            start = float(start)
+            end = start + float(dur) if dur is not None else start + 0.08
+            recognized.append({"text": text, "start": start, "end": max(end, start + 0.08)})
+        if len(recognized) < len(target):
+            raise RuntimeError(f"Forced alignment returned {len(recognized)}/{len(target)} words")
 
         out = []
         j = 0
         for i, word in enumerate(target):
             k = norm(word)
             hit = None
-            for p in range(j, min(len(recognized), j + 8)):
-                if norm(recognized[p]["text"]) == k:
-                    hit = p
+            for pidx in range(j, min(len(recognized), j + 3)):
+                if norm(recognized[pidx]["text"]) == k:
+                    hit = pidx
                     break
             if hit is None:
-                raise RuntimeError(f"Local ASR could not produce a real timing for word {i+1}/{len(target)}: {word!r}")
+                raise RuntimeError(f"Forced alignment mismatch at word {i+1}/{len(target)}: {word!r}")
             r = recognized[hit]
             out.append({"text": word, "start": r["start"], "end": r["end"], "i": i})
             j = hit + 1
-
         print(json.dumps(out, separators=(",", ":")))
     finally:
         prepared.unlink(missing_ok=True)
