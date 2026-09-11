@@ -122,10 +122,9 @@ async function uploadDriveFile(token, filePath, name, parentId) {
   return d;
 }
 
-function cleanScript(s) { return String(s || '').replace(/[\\r\\n]+/g, ' ').replace(/\\s+/g, ' ').trim(); }
-function wordsOf(s) { return cleanScript(s).split(/\\s+/).filter(Boolean).map(w => w.replace(/^[“”"']+|[“”"']+$/g, '').replace(/[\\/]/g, '')); }
+function cleanScript(s) { return String(s || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+function wordsOf(s) { return cleanScript(s).split(/\s+/).filter(Boolean).map(w => w.replace(/^[“”"']+|[“”"']+$/g, '').replace(/[\\/]/g, '')); }
 
-// Reference-style captions: slightly larger, but clean and safely inside the frame.
 const FONT_SIZE = 56;
 const MAX_CHARS = 22;
 const MAX_LINES = 3;
@@ -142,11 +141,8 @@ function layoutWords(words) {
   let n = 0;
   for (const w of words) {
     const need = line.length ? n + 1 + w.length : w.length;
-    if (line.length && need > MAX_CHARS) {
-      lines.push(line); line = [w]; n = w.length;
-    } else {
-      line.push(w); n = need;
-    }
+    if (line.length && need > MAX_CHARS) { lines.push(line); line = [w]; n = w.length; }
+    else { line.push(w); n = need; }
   }
   if (line.length) lines.push(line);
   return lines;
@@ -157,7 +153,6 @@ function captionPages(words) {
   let page = [];
   let i = 0;
   while (i < words.length) {
-    const remaining = words.length - i;
     const candidate = [...page, words[i]];
     const wouldOverflow = layoutWords(candidate).length > MAX_LINES;
     const reachedSoftTarget = page.length >= TARGET_WORDS;
@@ -192,16 +187,9 @@ function justifyLine(words, last) {
   for (let i = 1; i < words.length; i++) s += ' '.repeat(base + (i - 1 < extra ? 1 : 0)) + words[i];
   return s;
 }
-
-function captionText(words) {
-  const lines = layoutWords(words);
-  return lines.map((line, i) => justifyLine(line, i === lines.length - 1)).join('\\\\N');
-}
-function assEscape(s) { return s.replaceAll('{', '\\\\{').replaceAll('}', '\\\\}'); }
-function assTime(sec) {
-  const cs = Math.max(0, Math.round(sec * 100));
-  return `${Math.floor(cs / 360000)}:${String(Math.floor(cs % 360000 / 6000)).padStart(2, '0')}:${String(Math.floor(cs % 6000 / 100)).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
-}
+function captionText(words) { const lines = layoutWords(words); return lines.map((line, i) => justifyLine(line, i === lines.length - 1)).join('\\N'); }
+function assEscape(s) { return s.replaceAll('{', '\\{').replaceAll('}', '\\}'); }
+function assTime(sec) { const cs = Math.max(0, Math.round(sec * 100)); return `${Math.floor(cs / 360000)}:${String(Math.floor(cs % 360000 / 6000)).padStart(2, '0')}:${String(Math.floor(cs % 6000 / 100)).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`; }
 
 async function wordTimings(script, audioUrl) {
   let lastErr;
@@ -223,13 +211,7 @@ async function makeAssFromTimings(script, timings, out) {
   if (timings.length !== words.length) throw new Error(`Caption word count mismatch: timings=${timings.length} script=${words.length}`);
   const pages = captionPages(words);
   let cursor = 0;
-  const ass = [
-    '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 644', 'WrapStyle: 2', 'ScaledBorderAndShadow: yes', '',
-    '[V4+ Styles]',
-    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Ref,Courier,${FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,1,0,0,0,100,100,0,0,1,3.2,2.4,7,0,0,0,1`, '',
-    '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'
-  ];
+  const ass = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 644', 'WrapStyle: 2', 'ScaledBorderAndShadow: yes', '', '[V4+ Styles]', 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding', `Style: Ref,Courier,${FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,1,0,0,0,100,100,0,0,1,3.2,2.4,7,0,0,0,1`, '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'];
   for (const page of pages) {
     let shown = [];
     for (const word of page) {
@@ -237,34 +219,21 @@ async function makeAssFromTimings(script, timings, out) {
       const nextTiming = cursor + 1 < timings.length ? timings[cursor + 1] : null;
       shown.push(word);
       const end = nextTiming ? Math.max(timing.end + 0.08, nextTiming.start) : Math.max(timing.end + 0.25, timing.start + 0.4);
-      ass.push(`Dialogue: 0,${assTime(timing.start)},${assTime(end)},Ref,,0,0,0,,{\\\\pos(${Math.round(SAFE_X)},${TOP_Y})}${assEscape(captionText(shown))}`);
+      ass.push(`Dialogue: 0,${assTime(timing.start)},${assTime(end)},Ref,,0,0,0,,{\\pos(${Math.round(SAFE_X)},${TOP_Y})}${assEscape(captionText(shown))}`);
       cursor++;
     }
   }
-  await fs.writeFile(out, ass.join('\\n') + '\\n', 'utf8');
+  await fs.writeFile(out, ass.join('\n') + '\n', 'utf8');
   console.log(`Captioned ${pages.length} paragraphs; sizes=${pages.map(p => p.length).join(',')}`);
 }
 
-async function buildAmbientMusic(total, out) {
-  await run('ffmpeg', ['-y', '-f', 'lavfi', '-i', `sine=frequency=196:sample_rate=44100:duration=${total}`, '-f', 'lavfi', '-i', `sine=frequency=246.94:sample_rate=44100:duration=${total}`, '-filter_complex', '[0:a]volume=0.015[a0];[1:a]volume=0.010[a1];[a0][a1]amix=inputs=2:duration=longest,lowpass=f=850,loudnorm=I=-30:TP=-3:LRA=7[a]', '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', out]);
-}
+async function buildAmbientMusic(total, out) { await run('ffmpeg', ['-y', '-f', 'lavfi', '-i', `sine=frequency=196:sample_rate=44100:duration=${total}`, '-f', 'lavfi', '-i', `sine=frequency=246.94:sample_rate=44100:duration=${total}`, '-filter_complex', '[0:a]volume=0.015[a0];[1:a]volume=0.010[a1];[a0][a1]amix=inputs=2:duration=longest,lowpass=f=850,loudnorm=I=-30:TP=-3:LRA=7[a]', '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', out]); }
 
-async function buildAudio(voice, music, total, out) {
-  await run('ffmpeg', ['-y', '-i', voice, '-i', music, '-filter_complex', '[0:a]highpass=f=70,loudnorm=I=-10:TP=-1:LRA=7,aresample=44100,volume=1.32,asplit=2[v][sc];[1:a]highpass=f=70,lowpass=f=15000,loudnorm=I=-32:TP=-2:LRA=8,aresample=44100,volume=0.16[m];[m][sc]sidechaincompress=threshold=0.020:ratio=9:attack=8:release=280:makeup=1:mix=1[md];[v][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.90:level=disabled[a]', '-map', '[a]', '-t', String(total), '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2', out]);
-}
+async function buildAudio(voice, music, total, out) { await run('ffmpeg', ['-y', '-i', voice, '-i', music, '-filter_complex', '[0:a]highpass=f=70,loudnorm=I=-10:TP=-1:LRA=7,aresample=44100,volume=1.32,asplit=2[v][sc];[1:a]highpass=f=70,lowpass=f=15000,loudnorm=I=-32:TP=-2:LRA=8,aresample=44100,volume=0.16[m];[m][sc]sidechaincompress=threshold=0.020:ratio=9:attack=8:release=280:makeup=1:mix=1[md];[v][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.90:level=disabled[a]', '-map', '[a]', '-t', String(total), '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2', out]); }
 
 async function renderFinal(footage, ass, audio, total, out) {
-  const ap = ass.replaceAll('\\\\', '/').replaceAll(':', '\\\\:');
-  const vf = [
-    'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos',
-    'crop=1080:644:(in_w-1080)/2:(in_h-644)/2',
-    'setsar=1', 'fps=30',
-    'eq=brightness=-0.015:contrast=1.03:saturation=0.99',
-    'unsharp=5:5:0.25:5:5:0.0',
-    'drawbox=x=0:y=0:w=iw:h=ih:color=black@0.07:t=fill',
-    "drawbox=x=0:y=0:w=iw:h=ih:color=black@1:t=fill:enable='between(t,2.6,5.3)'",
-    `subtitles='${ap}':original_size=1080x644`
-  ].join(',');
+  const ap = ass.replaceAll('\\', '/').replaceAll(':', '\\:');
+  const vf = ['scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos', 'crop=1080:644:(in_w-1080)/2:(in_h-644)/2', 'setsar=1', 'fps=30', 'eq=brightness=-0.015:contrast=1.03:saturation=0.99', 'unsharp=5:5:0.25:5:5:0.0', 'drawbox=x=0:y=0:w=iw:h=ih:color=black@0.07:t=fill', "drawbox=x=0:y=0:w=iw:h=ih:color=black@1:t=fill:enable='between(t,2.6,5.3)'", `subtitles='${ap}':original_size=1080x644`].join(',');
   await run('ffmpeg', ['-y', '-stream_loop', '-1', '-i', footage, '-i', audio, '-t', String(total), '-vf', vf, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '10', '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p', '-r', '30', '-fps_mode', 'cfr', '-c:a', 'copy', '-movflags', '+faststart', '-tag:v', 'avc1', out]);
 }
 
@@ -274,7 +243,7 @@ async function verify(file, expected) {
   if (Math.abs(d - expected) > 1) throw new Error(`Final duration mismatch: ${d} vs ${expected}`);
   const r = await run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels,bit_rate,profile,level', '-of', 'json', file]);
   if (!r.stdout.includes('video') || !r.stdout.includes('audio')) throw new Error('Final file missing video/audio');
-  console.log(`VERIFIED ${(st.size / 1048576).toFixed(1)}MB ${d.toFixed(2)}s\\n${r.stdout}`);
+  console.log(`VERIFIED ${(st.size / 1048576).toFixed(1)}MB ${d.toFixed(2)}s\n${r.stdout}`);
 }
 
 async function main() {
@@ -292,13 +261,9 @@ async function main() {
     const ef = await ensureFolder(token, 'Exports', root.id);
     const allF = await folderDescendants(token, ff.id);
     const allM = await folderDescendants(token, mf.id);
-    const vr = /\\.(mp4|mov|mkv|webm|m4v)$/i;
-    const ar = /\\.(mp3|wav|m4a|aac|ogg|flac)$/i;
-    const videos = allF.filter(f => vr.test(f.name) || String(f.mimeType || '').startsWith('video/')).sort((a, b) => {
-      const aW = Number(a.videoMediaMetadata?.width) || 0, aH = Number(a.videoMediaMetadata?.height) || 0;
-      const bW = Number(b.videoMediaMetadata?.width) || 0, bH = Number(b.videoMediaMetadata?.height) || 0;
-      return (bW * bH) - (aW * aH) || Number(b.size || 0) - Number(a.size || 0);
-    });
+    const vr = /\.(mp4|mov|mkv|webm|m4v)$/i;
+    const ar = /\.(mp3|wav|m4a|aac|ogg|flac)$/i;
+    const videos = allF.filter(f => vr.test(f.name) || String(f.mimeType || '').startsWith('video/')).sort((a, b) => { const aW = Number(a.videoMediaMetadata?.width) || 0, aH = Number(a.videoMediaMetadata?.height) || 0, bW = Number(b.videoMediaMetadata?.width) || 0, bH = Number(b.videoMediaMetadata?.height) || 0; return (bW * bH) - (aW * aH) || Number(b.size || 0) - Number(a.size || 0); });
     const tracks = allM.filter(f => (ar.test(f.name) || String(f.mimeType || '').startsWith('audio/') || vr.test(f.name) || String(f.mimeType || '').startsWith('video/')) && !/(tts|voice|narration|speech|dialogue|mic)/i.test(f.name)).sort((a, b) => Number(b.modifiedTime ? Date.parse(b.modifiedTime) : 0) - Number(a.modifiedTime ? Date.parse(a.modifiedTime) : 0));
     if (!videos.length) throw new Error('No video footage found in UNMINDY/Footage');
     const footage = videos[0];
@@ -311,18 +276,10 @@ async function main() {
     const total = await duration(voice);
     if (!Number.isFinite(total) || total <= 1) throw new Error(`Invalid TTS duration: ${total}`);
     const music = path.join(MUSIC, 'ambient.m4a');
-    if (tracks.length) {
-      const chosen = tracks[0];
-      console.log(`Music: ${chosen.name}`);
-      await downloadDriveFile(token, chosen, music);
-    } else {
-      console.log('No music asset found; generating original ambient bed.');
-      await buildAmbientMusic(total, music);
-    }
+    if (tracks.length) { const chosen = tracks[0]; console.log(`Music: ${chosen.name}`); await downloadDriveFile(token, chosen, music); }
+    else { console.log('No music asset found; generating original ambient bed.'); await buildAmbientMusic(total, music); }
     const timings = await wordTimings(job.script, job.tts_audio_url);
-    const ass = path.join(WORK, 'captions.ass');
-    const audio = path.join(WORK, 'audio.m4a');
-    const final = path.join(WORK, 'final.mp4');
+    const ass = path.join(WORK, 'captions.ass'), audio = path.join(WORK, 'audio.m4a'), final = path.join(WORK, 'final.mp4');
     console.log(`Timed ${timings.length} words from Gemini transcription.`);
     await makeAssFromTimings(job.script, timings, ass);
     await buildAudio(voice, music, total, audio);
