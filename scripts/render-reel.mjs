@@ -233,26 +233,39 @@ async function makeAssFromTimings(script, timings, out) {
   console.log(`Captioned ${pages.length} paragraphs; sizes=${pages.map(p => p.length).join(',')}`);
 }
 
-async function buildAmbientMusic(total, out) { await run('ffmpeg', ['-y', '-f', 'lavfi', '-i', `sine=frequency=196:sample_rate=44100:duration=${total}`, '-f', 'lavfi', '-i', `sine=frequency=246.94:sample_rate=44100:duration=${total}`, '-filter_complex', '[0:a]volume=0.015[a0];[1:a]volume=0.010[a1];[a0][a1]amix=inputs=2:duration=longest,lowpass=f=850,loudnorm=I=-30:TP=-3:LRA=7[a]', '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', out]); }
+async function buildAmbientMusic(total, out) {
+  await run('ffmpeg', ['-y', '-f', 'lavfi', '-i', `sine=frequency=196:sample_rate=44100:duration=${total}`, '-f', 'lavfi', '-i', `sine=frequency=246.94:sample_rate=44100:duration=${total}`, '-filter_complex', '[0:a]volume=0.015[a0];[1:a]volume=0.010[a1];[a0][a1]amix=inputs=2:duration=longest,lowpass=f=850,loudnorm=I=-30:TP=-3:LRA=7[a]', '-map', '[a]', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', out]);
+}
 
-async function buildAudio(voice, music, total, out) { await run('ffmpeg', ['-y', '-i', voice, '-i', music, '-filter_complex', '[0:a]highpass=f=70,loudnorm=I=-10:TP=-1:LRA=7,aresample=44100,volume=1.32,asplit=2[v][sc];[1:a]highpass=f=70,lowpass=f=15000,loudnorm=I=-32:TP=-2:LRA=8,aresample=44100,volume=0.16[m];[m][sc]sidechaincompress=threshold=0.020:ratio=9:attack=8:release=280:makeup=1:mix=1[md];[v][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.90:level=disabled[a]', '-map', '[a]', '-t', String(total), '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2', out]); }
+async function buildAudio(voice, music, total, out) {
+  await run('ffmpeg', ['-y', '-i', voice, '-i', music, '-filter_complex', '[0:a]highpass=f=70,loudnorm=I=-10:TP=-1:LRA=7,aresample=44100,volume=1.32,asplit=2[v][sc];[1:a]highpass=f=70,lowpass=f=15000,loudnorm=I=-32:TP=-2:LRA=8,aresample=44100,volume=0.16[m];[m][sc]sidechaincompress=threshold=0.020:ratio=9:attack=8:release=280:makeup=1:mix=1[md];[v][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.90:level=disabled[a]', '-map', '[a]', '-t', String(total), '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2', out]);
+}
 
 async function renderFinal(footage, ass, audio, total, out) {
   const ap = ass.replaceAll('\\', '/').replaceAll(':', '\\:');
+  // Supersample, gently clean compression noise, restore edge definition, then downsample.
+  // This does not invent content, but it avoids making an already-compressed source look
+  // softer during the 1280->1080 crop and gives the Minecraft edges a cleaner finish.
   const vf = [
-    'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos',
-    'crop=1080:644:(in_w-1080)/2:(in_h-644)/2',
+    'scale=2160:1288:force_original_aspect_ratio=increase:flags=lanczos',
+    'crop=2160:1288:(in_w-2160)/2:(in_h-1288)/2',
     'setsar=1',
+    'hqdn3d=0.8:0.8:1.6:1.6',
+    'eq=brightness=-0.005:contrast=1.025:saturation=1.01',
+    'unsharp=7:7:0.45:7:7:0.0',
+    'scale=1080:644:flags=lanczos',
+    'format=yuv420p',
     'fps=30',
-    'eq=brightness=-0.01:contrast=1.02:saturation=1.0',
     `subtitles='${ap}':original_size=1080x644`
   ].join(',');
   await run('ffmpeg', [
     '-y', '-stream_loop', '-1', '-i', footage, '-i', audio, '-t', String(total),
     '-vf', vf, '-map', '0:v:0', '-map', '1:a:0',
-    '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '8',
+    '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '5',
     '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p',
-    '-r', '30', '-fps_mode', 'cfr', '-c:a', 'copy', '-movflags', '+faststart', '-tag:v', 'avc1', out
+    '-r', '30', '-fps_mode', 'cfr',
+    '-x264-params', 'aq-mode=3:aq-strength=0.75:deblock=-1,-1:ref=5:bframes=8:me=umh:subme=10',
+    '-c:a', 'copy', '-movflags', '+faststart', '-tag:v', 'avc1', out
   ]);
 }
 
@@ -322,7 +335,7 @@ async function main() {
     await renderFinal(sourcePath, ass, audio, total, final);
     await fs.copyFile(final, OUT);
     await verify(OUT, total);
-    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-final-v19.mp4`, ef.id);
+    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-final-v20.mp4`, ef.id);
     const url = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
     await api('/api/edit/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: job.id, status: 'Ready', export_drive_file_id: uploaded.id, export_drive_url: url }) });
     console.log(`Exported: ${url}`);
