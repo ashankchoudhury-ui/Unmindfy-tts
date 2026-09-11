@@ -199,14 +199,18 @@ function assTime(sec) { const cs = Math.max(0, Math.round(sec * 100)); return `$
 
 async function wordTimings(script, audioUrl) {
   let lastErr;
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; attempt <= 8; attempt++) {
     try {
       const d = await api('/api/edit/transcribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioUrl, script }) });
       if (!Array.isArray(d.words) || !d.words.length) throw new Error('Transcription returned no timings');
-      return d.words.map((w, i) => ({ text: w.text, start: Math.max(0, Number(w.start) || 0), end: Math.max(Number(w.end) || 0, (Number(w.start) || 0) + 0.08), i }));
+      const words = wordsOf(script);
+      if (d.words.length !== words.length) throw new Error(`Transcription word count mismatch: timings=${d.words.length} script=${words.length}`);
+      return d.words.map((w, i) => ({ text: words[i], start: Math.max(0, Number(w.start) || 0), end: Math.max(Number(w.end) || 0, (Number(w.start) || 0) + 0.08), i }));
     } catch (e) {
       lastErr = e;
-      if (attempt < 5) await new Promise(r => setTimeout(r, 1500 * 2 ** (attempt - 1)));
+      const msg = String(e?.message || e);
+      if (!/429|quota|too_many_requests/i.test(msg) || attempt >= 8) break;
+      await new Promise(r => setTimeout(r, Math.min(90000, 5000 * 2 ** (attempt - 1))));
     }
   }
   throw lastErr;
@@ -238,34 +242,28 @@ async function buildAmbientMusic(total, out) {
 }
 
 async function buildAudio(voice, music, total, out) {
-  await run('ffmpeg', ['-y', '-i', voice, '-i', music, '-filter_complex', '[0:a]highpass=f=70,loudnorm=I=-10:TP=-1:LRA=7,aresample=44100,volume=1.32,asplit=2[v][sc];[1:a]highpass=f=70,lowpass=f=15000,loudnorm=I=-32:TP=-2:LRA=8,aresample=44100,volume=0.16[m];[m][sc]sidechaincompress=threshold=0.020:ratio=9:attack=8:release=280:makeup=1:mix=1[md];[v][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.90:level=disabled[a]', '-map', '[a]', '-t', String(total), '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2', out]);
+  await run('ffmpeg', ['-y', '-i', voice, '-i', music, '-filter_complex', '[0:a]highpass=f=70,loudnorm=I=-10:TP=-1:LRA=7,aresample=44100,volume=1.32,asplit=2[v][sc];[1:a]highpass=f=70,lowpass=f=15000,loudnorm=I=-32:TP=-2:LRA=8,aresample=44100,volume=0.16[m];[m][sc]sidechaincompress=threshold=0.020:ratio=9:attack=8:release=280:makeup=1:mix=1[md];[v][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.90:level=disabled[a]', '-map', '[a]', '-t', String(total), '-c:a', 'aac', '-b:a', '256k', '-ar', '44100', '-ac', '2', out]);
 }
 
 async function renderFinal(footage, ass, audio, total, out) {
   const ap = ass.replaceAll('\\', '/').replaceAll(':', '\\:');
-  // Supersample, gently clean compression noise, restore edge definition, then downsample.
-  // This does not invent content, but it avoids making an already-compressed source look
-  // softer during the 1280->1080 crop and gives the Minecraft edges a cleaner finish.
-  const vf = [
-    'scale=2160:1288:force_original_aspect_ratio=increase:flags=lanczos',
-    'crop=2160:1288:(in_w-2160)/2:(in_h-1288)/2',
-    'setsar=1',
-    'hqdn3d=0.8:0.8:1.6:1.6',
-    'eq=brightness=-0.005:contrast=1.025:saturation=1.01',
-    'unsharp=7:7:0.45:7:7:0.0',
-    'scale=1080:644:flags=lanczos',
-    'format=yuv420p',
-    'fps=30',
-    `subtitles='${ap}':original_size=1080x644`
-  ].join(',');
+  const source = await probeVideo(footage);
+  const sw = Number(source.width) || 0, sh = Number(source.height) || 0;
+  if (sw < 1080 || sh < 644) throw new Error(`Source footage is below final resolution: ${sw}x${sh}. Refusing to upscale.`);
+  const resize = sw === 1080 && sh === 644
+    ? 'setsar=1,format=yuv420p'
+    : 'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:644:(in_w-1080)/2:(in_h-644)/2,setsar=1,format=yuv420p';
+  const vf = `${resize},subtitles='${ap}':original_size=1080x644`;
   await run('ffmpeg', [
     '-y', '-stream_loop', '-1', '-i', footage, '-i', audio, '-t', String(total),
     '-vf', vf, '-map', '0:v:0', '-map', '1:a:0',
-    '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '5',
+    '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '12',
     '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p',
     '-r', '30', '-fps_mode', 'cfr',
-    '-x264-params', 'aq-mode=3:aq-strength=0.75:deblock=-1,-1:ref=5:bframes=8:me=umh:subme=10',
-    '-c:a', 'copy', '-movflags', '+faststart', '-tag:v', 'avc1', out
+    '-x264-params', 'aq-mode=3:aq-strength=0.85:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10',
+    '-maxrate', '16M', '-bufsize', '24M',
+    '-c:a', 'aac', '-b:a', '256k', '-ar', '44100', '-ac', '2',
+    '-movflags', '+faststart', '-tag:v', 'avc1', out
   ]);
 }
 
@@ -274,13 +272,14 @@ async function verify(file, expected) {
   if (st.size < 1000000) throw new Error(`Rendered video is suspiciously small: ${st.size}`);
   if (Math.abs(d - expected) > 1) throw new Error(`Final duration mismatch: ${d} vs ${expected}`);
   if (v.width !== 1080 || v.height !== 644) throw new Error(`Unexpected final video size: ${v.width}x${v.height}`);
-  const r = await run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels,bit_rate,profile,level', '-of', 'json', file]);
+  if (Number(v.bit_rate || 0) < 5000000) throw new Error(`Final video bitrate is too low: ${v.bit_rate}`);
+  const r = await run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels,bit_rate,profile,level,pix_fmt', '-of', 'json', file]);
   if (!r.stdout.includes('video') || !r.stdout.includes('audio')) throw new Error('Final file missing video/audio');
   console.log(`VERIFIED ${(st.size / 1048576).toFixed(1)}MB ${d.toFixed(2)}s\n${r.stdout}`);
 }
 
 function isGeneratedVideo(name) {
-  return /(reel-|reference-style|final(?:-|\.|_)?v\d|render(?:ed|ed)?-|export(?:-|_)|instagram|tiktok)/i.test(name);
+  return /(reel-|reference-style|final(?:-|\\.|_)?v\\d|render(?:ed|ed)?-|export(?:-|_)|instagram|tiktok)/i.test(name);
 }
 
 async function main() {
@@ -335,7 +334,7 @@ async function main() {
     await renderFinal(sourcePath, ass, audio, total, final);
     await fs.copyFile(final, OUT);
     await verify(OUT, total);
-    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-final-v20.mp4`, ef.id);
+    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-final-v22.mp4`, ef.id);
     const url = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
     await api('/api/edit/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: job.id, status: 'Ready', export_drive_file_id: uploaded.id, export_drive_url: url }) });
     console.log(`Exported: ${url}`);
