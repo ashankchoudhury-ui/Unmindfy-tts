@@ -37,3 +37,4 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           node scripts/render-reel.mjs
+      # Production retry: local audio-derived timings bypass the exhausted Gemini quota.
