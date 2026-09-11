@@ -16,14 +16,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install media tools and ASR
+      - name: Install media tools and forced-alignment ASR
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35 python3-pocketsphinx
+          sudo apt-get install -y ffmpeg fonts-urw-base35 pocketsphinx python3-pocketsphinx
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
+          pocketsphinx help | head -n 2 || true
           fc-match Courier
-      - name: Render final Reel
+      - name: Render final Reel 3
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: |
