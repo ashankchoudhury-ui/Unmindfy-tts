@@ -1,4 +1,4 @@
-const SUPABASE_URL = 'https://iwpanewluzilghoitvxr';
+const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 
 function env(name) {
   const value = process.env[name];
