@@ -39,6 +39,12 @@ async function duration(file) {
   return Number(r.stdout.trim());
 }
 
+async function probeVideo(file) {
+  const r = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height,pix_fmt,bit_rate,avg_frame_rate,profile', '-of', 'json', file]);
+  const d = JSON.parse(r.stdout);
+  return d.streams?.[0] || {};
+}
+
 async function driveList(token, q) {
   const out = [];
   let page;
@@ -233,17 +239,35 @@ async function buildAudio(voice, music, total, out) { await run('ffmpeg', ['-y',
 
 async function renderFinal(footage, ass, audio, total, out) {
   const ap = ass.replaceAll('\\', '/').replaceAll(':', '\\:');
-  const vf = ['scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos', 'crop=1080:644:(in_w-1080)/2:(in_h-644)/2', 'setsar=1', 'fps=30', 'eq=brightness=-0.015:contrast=1.03:saturation=0.99', 'unsharp=5:5:0.25:5:5:0.0', 'drawbox=x=0:y=0:w=iw:h=ih:color=black@0.07:t=fill', "drawbox=x=0:y=0:w=iw:h=ih:color=black@1:t=fill:enable='between(t,2.6,5.3)'", `subtitles='${ap}':original_size=1080x644`].join(',');
-  await run('ffmpeg', ['-y', '-stream_loop', '-1', '-i', footage, '-i', audio, '-t', String(total), '-vf', vf, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '10', '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p', '-r', '30', '-fps_mode', 'cfr', '-c:a', 'copy', '-movflags', '+faststart', '-tag:v', 'avc1', out]);
+  const vf = [
+    'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos',
+    'crop=1080:644:(in_w-1080)/2:(in_h-644)/2',
+    'setsar=1',
+    'fps=30',
+    'eq=brightness=-0.01:contrast=1.02:saturation=1.0',
+    `subtitles='${ap}':original_size=1080x644`
+  ].join(',');
+  await run('ffmpeg', [
+    '-y', '-stream_loop', '-1', '-i', footage, '-i', audio, '-t', String(total),
+    '-vf', vf, '-map', '0:v:0', '-map', '1:a:0',
+    '-c:v', 'libx264', '-preset', 'veryslow', '-crf', '8',
+    '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p',
+    '-r', '30', '-fps_mode', 'cfr', '-c:a', 'copy', '-movflags', '+faststart', '-tag:v', 'avc1', out
+  ]);
 }
 
 async function verify(file, expected) {
-  const st = await fs.stat(file), d = await duration(file);
+  const st = await fs.stat(file), d = await duration(file), v = await probeVideo(file);
   if (st.size < 1000000) throw new Error(`Rendered video is suspiciously small: ${st.size}`);
   if (Math.abs(d - expected) > 1) throw new Error(`Final duration mismatch: ${d} vs ${expected}`);
+  if (v.width !== 1080 || v.height !== 644) throw new Error(`Unexpected final video size: ${v.width}x${v.height}`);
   const r = await run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels,bit_rate,profile,level', '-of', 'json', file]);
   if (!r.stdout.includes('video') || !r.stdout.includes('audio')) throw new Error('Final file missing video/audio');
   console.log(`VERIFIED ${(st.size / 1048576).toFixed(1)}MB ${d.toFixed(2)}s\n${r.stdout}`);
+}
+
+function isGeneratedVideo(name) {
+  return /(reel-|reference-style|final(?:-|\.|_)?v\d|render(?:ed|ed)?-|export(?:-|_)|instagram|tiktok)/i.test(name);
 }
 
 async function main() {
@@ -263,12 +287,24 @@ async function main() {
     const allM = await folderDescendants(token, mf.id);
     const vr = /\.(mp4|mov|mkv|webm|m4v)$/i;
     const ar = /\.(mp3|wav|m4a|aac|ogg|flac)$/i;
-    const videos = allF.filter(f => vr.test(f.name) || String(f.mimeType || '').startsWith('video/')).sort((a, b) => { const aW = Number(a.videoMediaMetadata?.width) || 0, aH = Number(a.videoMediaMetadata?.height) || 0, bW = Number(b.videoMediaMetadata?.width) || 0, bH = Number(b.videoMediaMetadata?.height) || 0; return (bW * bH) - (aW * aH) || Number(b.size || 0) - Number(a.size || 0); });
+    const videos = allF
+      .filter(f => (vr.test(f.name) || String(f.mimeType || '').startsWith('video/')) && !isGeneratedVideo(f.name))
+      .sort((a, b) => {
+        const aW = Number(a.videoMediaMetadata?.width) || 0, aH = Number(a.videoMediaMetadata?.height) || 0;
+        const bW = Number(b.videoMediaMetadata?.width) || 0, bH = Number(b.videoMediaMetadata?.height) || 0;
+        const aPixels = aW * aH, bPixels = bW * bH;
+        const aSize = Number(a.size || 0), bSize = Number(b.size || 0);
+        return bPixels - aPixels || bSize - aSize || (Date.parse(b.modifiedTime || 0) - Date.parse(a.modifiedTime || 0));
+      });
     const tracks = allM.filter(f => (ar.test(f.name) || String(f.mimeType || '').startsWith('audio/') || vr.test(f.name) || String(f.mimeType || '').startsWith('video/')) && !/(tts|voice|narration|speech|dialogue|mic)/i.test(f.name)).sort((a, b) => Number(b.modifiedTime ? Date.parse(b.modifiedTime) : 0) - Number(a.modifiedTime ? Date.parse(a.modifiedTime) : 0));
-    if (!videos.length) throw new Error('No video footage found in UNMINDY/Footage');
+    if (!videos.length) throw new Error('No original video footage found in UNMINDY/Footage. Generated renders are intentionally excluded.');
     const footage = videos[0];
-    console.log(`Footage: ${footage.name} ${footage.videoMediaMetadata?.width || '?'}x${footage.videoMediaMetadata?.height || '?'}`);
+    console.log(`ORIGINAL FOOTAGE: ${footage.name} ${footage.videoMediaMetadata?.width || '?'}x${footage.videoMediaMetadata?.height || '?'} ${(Number(footage.size || 0) / 1048576).toFixed(1)}MB`);
     await downloadDriveFile(token, footage, path.join(FOOTAGE, footage.name));
+    const sourcePath = path.join(FOOTAGE, footage.name);
+    const sourceProbe = await probeVideo(sourcePath);
+    console.log(`SOURCE PROBE: ${JSON.stringify(sourceProbe)}`);
+    if ((Number(sourceProbe.width) || 0) < 900 || (Number(sourceProbe.height) || 0) < 500) throw new Error(`Source footage is too small/low-resolution: ${sourceProbe.width}x${sourceProbe.height}`);
     const voice = path.join(WORK, 'tts.wav');
     const rr = await fetch(job.tts_audio_url);
     if (!rr.ok || !rr.body) throw new Error(`TTS download failed: ${rr.status}`);
@@ -283,10 +319,10 @@ async function main() {
     console.log(`Timed ${timings.length} words from Gemini transcription.`);
     await makeAssFromTimings(job.script, timings, ass);
     await buildAudio(voice, music, total, audio);
-    await renderFinal(path.join(FOOTAGE, footage.name), ass, audio, total, final);
+    await renderFinal(sourcePath, ass, audio, total, final);
     await fs.copyFile(final, OUT);
     await verify(OUT, total);
-    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-final-v18.mp4`, ef.id);
+    const uploaded = await uploadDriveFile(token, OUT, `reel-${job.id}-reference-style-final-v19.mp4`, ef.id);
     const url = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
     await api('/api/edit/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: job.id, status: 'Ready', export_drive_file_id: uploaded.id, export_drive_url: url }) });
     console.log(`Exported: ${url}`);
