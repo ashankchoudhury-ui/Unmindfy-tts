@@ -31,20 +31,26 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
 
-    const rows = await supabase(
+    const candidates = await supabase(
       'content_pipeline?tts_status=eq.Ready&or=(edit_status.eq.Not%20Edited,edit_status.eq.Failed,edit_status.eq.Ready)&tts_audio_url=not.is.null&select=id,script,tts_audio_url,created_at&order=created_at.asc&limit=1'
     );
+    if (!candidates?.length) return res.status(200).json({ ok: true, job: null });
 
-    if (!rows?.length) return res.status(200).json({ ok: true, job: null });
+    const candidate = candidates[0];
+    const claimed = await supabase(
+      `content_pipeline?id=eq.${encodeURIComponent(candidate.id)}&tts_status=eq.Ready&or=(edit_status.eq.Not%20Edited,edit_status.eq.Failed,edit_status.eq.Ready)`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ edit_status: 'Editing', edit_error: null })
+      }
+    );
 
-    const job = rows[0];
-    await supabase(`content_pipeline?id=eq.${encodeURIComponent(job.id)}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify({ edit_status: 'Editing', edit_error: null })
-    });
+    // The conditional PATCH is the claim. If another runner won the race,
+    // Supabase returns no row and this runner must do nothing.
+    if (!claimed?.length) return res.status(200).json({ ok: true, job: null });
 
-    return res.status(200).json({ ok: true, job });
+    return res.status(200).json({ ok: true, job: claimed[0] });
   } catch (error) {
     console.error('UNMINDY edit job error:', error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Edit queue request failed' });
