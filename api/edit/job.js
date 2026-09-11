@@ -21,9 +21,21 @@ async function supabase(path, options = {}) {
     }
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { throw new Error(`Supabase returned invalid JSON: ${text}`); }
   if (!response.ok) throw new Error(`Supabase ${response.status}: ${text}`);
   return data;
+}
+
+function eligible(record, staleBeforeMs) {
+  const attempts = Number(record.edit_attempts || 0);
+  if (record.edit_status === 'Not Edited') return true;
+  if (record.edit_status === 'Failed') return attempts < MAX_EDIT_ATTEMPTS;
+  if (record.edit_status === 'Editing') {
+    const started = Date.parse(record.edit_started_at || record.updated_at || '');
+    return Number.isFinite(started) && started < staleBeforeMs;
+  }
+  return false;
 }
 
 export default async function handler(req, res) {
@@ -34,28 +46,21 @@ export default async function handler(req, res) {
       return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
 
-    const staleBefore = new Date(Date.now() - STALE_AFTER_MINUTES * 60 * 1000).toISOString();
+    const staleBeforeMs = Date.now() - STALE_AFTER_MINUTES * 60 * 1000;
     const candidates = await supabase(
-      `content_pipeline?tts_status=eq.Ready&tts_audio_url=not.is.null&or=(edit_status.eq.Not%20Edited,edit_status.eq.Failed,edit_status.eq.Editing%26edit_started_at.lt.${encodeURIComponent(staleBefore)})&select=id,script,tts_audio_url,created_at,updated_at,edit_status,edit_attempts,edit_started_at&order=created_at.asc&limit=1`
+      'content_pipeline?tts_status=eq.Ready&tts_audio_url=not.is.null&select=id,script,tts_audio_url,created_at,updated_at,edit_status,edit_attempts,edit_started_at&order=created_at.asc&limit=25'
     );
+    const candidate = (candidates || []).find(record => eligible(record, staleBeforeMs));
+    if (!candidate) return res.status(200).json({ ok: true, job: null });
 
-    if (!candidates?.length) return res.status(200).json({ ok: true, job: null });
-
-    const candidate = candidates[0];
     const attempts = Number(candidate.edit_attempts || 0);
     const nextAttempts = attempts + 1;
-    if (candidate.edit_status === 'Failed' && attempts >= MAX_EDIT_ATTEMPTS) {
-      return res.status(200).json({ ok: true, job: null });
-    }
-
     const now = new Date().toISOString();
-    let predicate;
-    if (candidate.edit_status === 'Not Edited') {
-      predicate = `edit_status=eq.Not%20Edited&edit_attempts=eq.${attempts}`;
-    } else if (candidate.edit_status === 'Failed') {
-      predicate = `edit_status=eq.Failed&edit_attempts=eq.${attempts}`;
+    let predicate = `edit_status=eq.${encodeURIComponent(candidate.edit_status)}`;
+    if (candidate.edit_status === 'Not Edited' || candidate.edit_status === 'Failed') {
+      predicate += `&edit_attempts=eq.${attempts}`;
     } else {
-      predicate = `edit_status=eq.Editing&edit_started_at=lt.${encodeURIComponent(staleBefore)}`;
+      predicate += `&edit_started_at=lt.${encodeURIComponent(new Date(staleBeforeMs).toISOString())}`;
     }
 
     const claimed = await supabase(
@@ -73,10 +78,7 @@ export default async function handler(req, res) {
       }
     );
 
-    // The conditional PATCH is the claim. If another runner won the race,
-    // Supabase returns no row and this runner must do nothing.
     if (!claimed?.length) return res.status(200).json({ ok: true, job: null });
-
     return res.status(200).json({ ok: true, job: claimed[0] });
   } catch (error) {
     console.error('UNMINDY edit job error:', error);
