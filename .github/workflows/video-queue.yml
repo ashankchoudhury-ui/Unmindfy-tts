@@ -21,6 +21,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-urw-base35
           fc-match Courier
+      - name: Patch quality-safe renderer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('scripts/render-reel.mjs')
+          s = p.read_text()
+          start = s.index('async function renderFinal(')
+          end = s.index('\nasync function verify(', start)
+          fn = r'''async function renderFinal(footage, ass, audio, total, out) {
+            const ap = ass.replaceAll('\\', '/').replaceAll(':', '\\:');
+            const source = await probeVideo(footage);
+            const sw = Number(source.width) || 0, sh = Number(source.height) || 0;
+            if (sw < 1080 || sh < 644) throw new Error(`Source footage is below final resolution: ${sw}x${sh}. Refusing to upscale.`);
+            const resize = sw === 1080 && sh === 644
+              ? 'setsar=1,format=yuv420p'
+              : 'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:644:(in_w-1080)/2:(in_h-644)/2,setsar=1,format=yuv420p';
+            const vf = `${resize},subtitles='${ap}':original_size=1080x644`;
+            await run('ffmpeg', [
+              '-y', '-stream_loop', '-1', '-i', footage, '-i', audio, '-t', String(total),
+              '-vf', vf, '-map', '0:v:0', '-map', '1:a:0',
+              '-c:v', 'libx264', '-preset', 'slow', '-crf', '16',
+              '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p',
+              '-r', '30', '-fps_mode', 'cfr',
+              '-x264-params', 'aq-mode=2:aq-strength=1.0:deblock=0,0:ref=4:bframes=4:me=umh:subme=8',
+              '-c:a', 'aac', '-b:a', '256k', '-ar', '44100', '-ac', '2',
+              '-movflags', '+faststart', '-tag:v', 'avc1', out
+            ]);
+          }
+          '''
+          s = s[:start] + fn + s[end:]
+          s = s.replace('reel-${job.id}-reference-style-final-v20.mp4', 'reel-${job.id}-reference-style-final-v21.mp4')
+          p.write_text(s)
+          PY
       - name: Render pending reel
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
