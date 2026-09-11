@@ -28,28 +28,34 @@ def prepare_audio(audio):
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: local-word-timings.py AUDIO SCRIPT")
-    audio, script = sys.argv[1], sys.argv[2]
-    target = [w.strip("\"'“”.,!?;:()[]{}") for w in re.split(r"\s+", script.strip()) if w.strip()]
+    audio, script = sys.argv[1], script = sys.argv[2]
+    target = [w.strip("\"'“”.,!?;:()[]{}…") for w in re.split(r"\s+", script.strip()) if w.strip()]
     prepared = prepare_audio(audio)
     try:
-        # PocketSphinx's align command performs genuine audio-to-script forced alignment.
+        # PocketSphinx align performs genuine forced alignment of the known script to the actual audio.
         p = subprocess.run(
-            ["pocketsphinx", "align", str(prepared), *target],
+            ["pocketsphinx", "align", str(prepared), " ".join(target)],
             check=True,
             capture_output=True,
             text=True,
         )
         data = json.loads(p.stdout)
-        raw = data.get("w") or []
+        raw = data.get("w") or data.get("words") or []
         recognized = []
         for item in raw:
-            text = str(item.get("t") or item.get("word") or "").strip()
-            start = item.get("b")
-            dur = item.get("d")
+            text = str(item.get("t") or item.get("word") or item.get("text") or "").strip()
+            start = item.get("b", item.get("start"))
+            dur = item.get("d", item.get("duration"))
+            end_value = item.get("e", item.get("end"))
             if not text or start is None:
                 continue
             start = float(start)
-            end = start + float(dur) if dur is not None else start + 0.08
+            if end_value is not None:
+                end = float(end_value)
+            elif dur is not None:
+                end = start + float(dur)
+            else:
+                end = start + 0.08
             recognized.append({"text": text, "start": start, "end": max(end, start + 0.08)})
         if len(recognized) < len(target):
             raise RuntimeError(f"Forced alignment returned {len(recognized)}/{len(target)} words")
@@ -59,12 +65,12 @@ def main():
         for i, word in enumerate(target):
             k = norm(word)
             hit = None
-            for pidx in range(j, min(len(recognized), j + 3)):
+            for pidx in range(j, min(len(recognized), j + 4)):
                 if norm(recognized[pidx]["text"]) == k:
                     hit = pidx
                     break
             if hit is None:
-                raise RuntimeError(f"Forced alignment mismatch at word {i+1}/{len(target)}: {word!r}")
+                raise RuntimeError(f"Forced alignment mismatch at word {i+1}/{len(target)}: {word!r}; got {recognized[j:j+4]}")
             r = recognized[hit]
             out.append({"text": word, "start": r["start"], "end": r["end"], "i": i})
             j = hit + 1
