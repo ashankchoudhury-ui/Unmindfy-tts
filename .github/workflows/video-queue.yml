@@ -21,15 +21,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install FFmpeg, fonts, and forced-alignment fallback
+      - name: Install FFmpeg, fonts, Python, and modern PocketSphinx
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35 pocketsphinx python3
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv
+          python3 -m venv /tmp/pocketsphinx-venv
+          /tmp/pocketsphinx-venv/bin/python -m pip install --upgrade pip
+          /tmp/pocketsphinx-venv/bin/python -m pip install --no-cache-dir pocketsphinx==5.1.1
+          echo "/tmp/pocketsphinx-venv/bin" >> "$GITHUB_PATH"
           command -v ffmpeg
           command -v ffprobe
           command -v pocketsphinx
           command -v python3
+          pocketsphinx help align >/dev/null
           fc-match Courier
       - name: Configure Gemini native transcription bridge
         env:
@@ -111,11 +116,7 @@ jobs:
               const gr = await realFetch(`${API}/v1beta/interactions`, {
                 method: 'POST',
                 headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  model: MODEL,
-                  input: [{ type: 'audio', uri: fileUri, mime_type: 'audio/wav' }],
-                  generation_config: { transcription_config: { mode: { type: 'verbatim', timestamp_granularities: ['word'] }, language_codes: ['en-IN'] } }
-                })
+                body: JSON.stringify({ model: MODEL, input: [{ type: 'audio', uri: fileUri, mime_type: 'audio/wav' }], generation_config: { transcription_config: { mode: { type: 'verbatim', timestamp_granularities: ['word'] }, language_codes: ['en-IN'] } } })
               });
               const gd = await gr.json().catch(() => ({}));
               if (!gr.ok) { const e = new Error(`Gemini transcription ${gr.status}: ${JSON.stringify(gd)}`); e.status = gr.status; throw e; }
@@ -130,15 +131,15 @@ jobs:
             const response = await realFetch(audioUrl);
             if (!response.ok) throw new Error(`Audio download for forced alignment failed: ${response.status}`);
             const bytes = Buffer.from(await response.arrayBuffer());
-            const path = `/tmp/unmindfy-forced-${Date.now()}.wav`;
+            const temp = `/tmp/unmindfy-forced-${Date.now()}.wav`;
             try {
-              await writeFile(path, bytes);
-              const { stdout } = await execFileP('python3', ['scripts/local-word-timings.py', path, script], { maxBuffer: 4 * 1024 * 1024 });
+              await writeFile(temp, bytes);
+              const { stdout } = await execFileP('python3', ['scripts/local-word-timings.py', temp, script], { maxBuffer: 4 * 1024 * 1024 });
               const words = JSON.parse(stdout.trim());
               if (!Array.isArray(words) || !words.length) throw new Error('Forced alignment returned no words');
               return words;
             } finally {
-              await unlink(path).catch(() => {});
+              await unlink(temp).catch(() => {});
             }
           }
           globalThis.fetch = async (input, init = {}) => {
@@ -153,7 +154,6 @@ jobs:
                 } catch (e) {
                   last = e;
                   if ([401, 403, 429].includes(e?.status)) continue;
-                  // A transcript/alignment mismatch is also allowed to use the local forced-align fallback.
                 }
               }
               try {
@@ -161,8 +161,7 @@ jobs:
                 const words = await forcedAlign(body.audioUrl, body.script);
                 return new Response(JSON.stringify({ ok: true, model: 'pocketsphinx-forced-align', words, timing_source: 'pocketsphinx_forced_alignment' }), { status: 200, headers: { 'content-type': 'application/json' } });
               } catch (fallbackError) {
-                const message = `Gemini and forced alignment both failed. Gemini: ${last?.message || 'unknown'}; fallback: ${fallbackError?.message || fallbackError}`;
-                throw new Error(message);
+                throw new Error(`Gemini and forced alignment both failed. Gemini: ${last?.message || 'unknown'}; fallback: ${fallbackError?.message || fallbackError}`);
               }
             }
             return realFetch(input, init);
