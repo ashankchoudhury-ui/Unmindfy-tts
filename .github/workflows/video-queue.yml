@@ -25,9 +25,30 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path('scripts/render-reel.mjs')
           s = p.read_text()
+          start = s.index('async function wordTimings(')
+          end = s.index('\nasync function makeAssFromTimings(', start)
+          fn = r'''async function wordTimings(script, audioUrl, total) {
+            const words = wordsOf(script);
+            if (!words.length) throw new Error('Script contains no words');
+            const weights = words.map((w, i) => {
+              const punctuation = /[.!?…]$/.test(w) ? 1.55 : /[,;:]$/.test(w) ? 1.22 : 1;
+              return Math.max(0.55, Math.sqrt(w.length)) * punctuation;
+            });
+            const totalWeight = weights.reduce((a, b) => a + b, 0);
+            const usable = Math.max(1, Number(total) - 0.25);
+            let t = 0;
+            return words.map((text, i) => {
+              const start = t;
+              const span = usable * weights[i] / totalWeight;
+              t += span;
+              return { text, start, end: Math.min(Number(total), t), i };
+            });
+          }
+          '''
+          s = s[:start] + fn + s[end:]
+          s = s.replace('wordTimings(job.script, job.tts_audio_url)', 'wordTimings(job.script, job.tts_audio_url, total)')
           start = s.index('async function renderFinal(')
           end = s.index('\nasync function verify(', start)
           fn = r'''async function renderFinal(footage, ass, audio, total, out) {
