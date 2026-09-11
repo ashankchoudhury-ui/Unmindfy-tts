@@ -42,3 +42,4 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           node scripts/render-reel.mjs
+      # Final production retry with verified audio-derived caption timing.
