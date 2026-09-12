@@ -9,7 +9,7 @@ on:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,7 +19,11 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3-venv curl
+          python3 -m venv /tmp/whisperx
+          /tmp/whisperx/bin/python -m pip install --upgrade pip
+          /tmp/whisperx/bin/python -m pip install whisperx
+          /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           command -v ffmpeg
           command -v ffprobe
           fc-match Courier
@@ -38,4 +42,4 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # fresh remote timing trigger 2
+      # fresh local alignment trigger
