@@ -12,18 +12,6 @@ def words(s):
     return [re.sub(r"^[“”\"']+|[“”\"']+$", "", w).replace("/", "") for w in re.split(r"\s+", str(s).strip()) if w.strip()]
 
 
-# Common ASR contractions that represent multiple script words as one spoken token.
-COMPOUND = {
-    "gonna": ("going", "to"),
-    "wanna": ("want", "to"),
-    "gotta": ("got", "to"),
-    "lemme": ("let", "me"),
-    "gimme": ("give", "me"),
-    "kinda": ("kind", "of"),
-    "sorta": ("sort", "of"),
-}
-
-
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: whisperx-word-timings.py AUDIO SCRIPT")
@@ -38,77 +26,47 @@ def main():
     compute_type = "int8"
     model = whisperx.load_model("base", device=device, compute_type=compute_type, language="en")
     result = model.transcribe(str(audio), language="en", batch_size=8)
-    segments = result.get("segments") or []
-    if not segments:
+    if not (result.get("segments") or []):
         raise RuntimeError("WhisperX returned no speech segments")
 
+    # Use WhisperX's CTC forced aligner against the exact narration script. This
+    # prevents ASR omissions of short words from destroying the word timeline.
     align_model, metadata = whisperx.load_align_model(language_code="en", device=device)
-    aligned = whisperx.align(segments, align_model, metadata, str(audio), device, return_char_alignments=False)
+    audio_array = whisperx.load_audio(str(audio))
+    duration = len(audio_array) / 16000.0
+    aligned = whisperx.align(
+        [{"start": 0.0, "end": duration, "text": " ".join(script)}],
+        align_model,
+        metadata,
+        audio_array,
+        device,
+        return_char_alignments=False,
+    )
     recognized = aligned.get("word_segments") or []
-    if not recognized:
-        raise RuntimeError("WhisperX alignment returned no word timestamps")
+    if len(recognized) < len(script):
+        raise RuntimeError(f"WhisperX script alignment returned only {len(recognized)}/{len(script)} words")
 
-    target = [norm(x) for x in script]
-    source = [norm(x.get("word", "")) for x in recognized]
     out = []
-    cursor = 0
-    i = 0
-    while i < len(script):
-        wanted = target[i]
-        # If ASR collapses two script words into one spoken token, preserve the real
-        # source interval for both words instead of inventing a fake midpoint.
-        compound_hit = None
-        if i + 1 < len(script):
-            pair = (target[i], target[i + 1])
-            for spoken, expected in COMPOUND.items():
-                if pair == expected:
-                    for j in range(cursor, min(len(source), cursor + 10)):
-                        if source[j] == spoken:
-                            compound_hit = (j, spoken)
-                            break
-                    if compound_hit:
-                        break
-        if compound_hit:
-            hit, spoken = compound_hit
-            item = recognized[hit]
-            start = float(item.get("start", -1))
-            end = float(item.get("end", -1))
-            if start < 0 or end <= start:
-                raise RuntimeError(f"WhisperX returned invalid timing for compound {spoken!r}: {item}")
-            group = len(out)
-            out.append({"text": script[i], "start": start, "end": end, "i": i, "group": group})
-            out.append({"text": script[i + 1], "start": start, "end": end, "i": i + 1, "group": group})
-            cursor = hit + 1
-            i += 2
-            continue
-
-        hit = None
-        for j in range(cursor, min(len(source), cursor + 10)):
-            if source[j] == wanted:
-                hit = j
-                break
-        if hit is None:
-            raise RuntimeError(f"WhisperX could not align script word {i+1}/{len(script)}: {script[i]!r}; nearby={source[cursor:cursor+10]}")
-        item = recognized[hit]
+    for i, (wanted, item) in enumerate(zip(script, recognized)):
+        got = norm(item.get("word", ""))
+        if got != norm(wanted):
+            raise RuntimeError(
+                f"WhisperX script alignment mismatch at word {i+1}/{len(script)}: "
+                f"wanted={wanted!r} got={item.get('word')!r}"
+            )
         start = float(item.get("start", -1))
         end = float(item.get("end", -1))
         if start < 0 or end <= start:
-            raise RuntimeError(f"WhisperX returned invalid timing for {script[i]!r}: {item}")
-        out.append({"text": script[i], "start": start, "end": end, "i": i, "group": i})
-        cursor = hit + 1
-        i += 1
+            raise RuntimeError(f"WhisperX returned invalid real timing for {wanted!r}: {item}")
+        out.append({"text": wanted, "start": start, "end": end, "i": i, "group": i})
 
     prev = -1.0
-    prev_group = None
     for i, item in enumerate(out):
         if item["start"] < prev:
             raise RuntimeError(f"Non-monotonic real word timing at {i+1}: {item}")
-        if item["start"] == prev and item.get("group") != prev_group:
-            raise RuntimeError(f"Unexpected duplicate word timing at {i+1}: {item}")
         if item["end"] <= item["start"]:
             raise RuntimeError(f"Collapsed word timing at {i+1}: {item}")
         prev = item["start"]
-        prev_group = item.get("group")
 
     print(json.dumps(out, separators=(",", ":")))
 
