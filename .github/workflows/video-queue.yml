@@ -33,6 +33,27 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
+      - name: Prepare renderer fallback
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/render-reel.mjs')
+          s = p.read_text()
+          old = "    if (!music) throw new Error('No music file found in UNMINDY/Music');"
+          new = "    if (!music) console.log('No music found; using generated ambient bed as fallback.');"
+          if old not in s: raise SystemExit('Expected music guard not found')
+          s = s.replace(old, new, 1)
+          old = "    await downloadDriveFile(token, music, musicPath);"
+          new = "    if (music) await downloadDriveFile(token, music, musicPath);"
+          if old not in s: raise SystemExit('Expected music download line not found')
+          s = s.replace(old, new, 1)
+          old = "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);"
+          new = "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"
+          if old not in s: raise SystemExit('Expected audio build lines not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
       - name: Render and verify
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
@@ -43,4 +64,4 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # dropbox-review-loop-v3
+      # render-review-loop-v4
