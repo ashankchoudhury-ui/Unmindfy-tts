@@ -54,7 +54,10 @@ jobs:
               await writeFile(tmp,bytes);
               const {stdout,stderr}=await execFileP(PYTHON,['scripts/whisperx-word-timings.py',tmp,body.script],{maxBuffer:8*1024*1024});
               if(stderr) console.error(stderr);
-              const words=JSON.parse(stdout.trim());
+              const raw=stdout.trim();
+              const first=raw.indexOf('['), last=raw.lastIndexOf(']');
+              if(first<0||last<first) throw new Error(`WhisperX returned no JSON array; stdout=${raw.slice(0,500)}`);
+              const words=JSON.parse(raw.slice(first,last+1));
               return new Response(JSON.stringify({ok:true,model:'whisperx-base+w2v2',words,timing_source:'whisperx_forced_alignment'}),{status:200,headers:{'content-type':'application/json'}});
             }finally{await unlink(tmp).catch(()=>{})}
           };
