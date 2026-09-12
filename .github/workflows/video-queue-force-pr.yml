@@ -22,11 +22,13 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv
-          python3 -m venv /tmp/pocketsphinx-venv
-          /tmp/pocketsphinx-venv/bin/python -m pip install --upgrade pip
-          /tmp/pocketsphinx-venv/bin/python -m pip install --no-cache-dir pocketsphinx==5.1.1
-          /tmp/pocketsphinx-venv/bin/python -m pocketsphinx help align >/dev/null
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv curl
+          base="https://archive.ubuntu.com/ubuntu/pool/universe/p/pocketsphinx"
+          curl -fsSL "$base/libpocketsphinx5_5.1.1-1_amd64.deb" -o /tmp/libpocketsphinx5.deb
+          curl -fsSL "$base/pocketsphinx_5.1.1-1_amd64.deb" -o /tmp/pocketsphinx.deb
+          curl -fsSL "$base/pocketsphinx-en-us_5.1.1-1_all.deb" -o /tmp/pocketsphinx-en-us.deb
+          sudo dpkg -i /tmp/libpocketsphinx5.deb /tmp/pocketsphinx-en-us.deb /tmp/pocketsphinx.deb
+          pocketsphinx help align >/dev/null
           fc-match Courier
       - name: Configure forced-alignment bridge
         run: |
