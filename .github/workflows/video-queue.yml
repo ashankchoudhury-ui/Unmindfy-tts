@@ -47,6 +47,10 @@ jobs:
           p.write_text(s)
           PY
           node --check scripts/render-reel.mjs
+          grep -q "'-crf','4'" scripts/render-reel.mjs
+          grep -q "return aw\*ah-bw\*bh" scripts/render-reel.mjs
+          grep -q "accurate_rnd+full_chroma_int" scripts/render-reel.mjs
+          grep -q "psy-rd=0.90,0.12" scripts/render-reel.mjs || true
       - name: Configure word-timestamp bridge
         run: |
           cat > /tmp/word-timing-bridge.mjs <<'EOF'
