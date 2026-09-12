@@ -44,6 +44,10 @@ jobs:
           new = "    if (!music) console.log('No music found; using generated ambient bed as fallback.');"
           if old not in s: raise SystemExit('Expected music guard not found')
           s = s.replace(old, new, 1)
+          old = "    console.log(`Music: ${music.name}`);"
+          new = "    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"
+          if old not in s: raise SystemExit('Expected music log line not found')
+          s = s.replace(old, new, 1)
           old = "    await downloadDriveFile(token, music, musicPath);"
           new = "    if (music) await downloadDriveFile(token, music, musicPath);"
           if old not in s: raise SystemExit('Expected music download line not found')
@@ -64,4 +68,4 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # render-review-loop-v4
+      # render-review-loop-v5
