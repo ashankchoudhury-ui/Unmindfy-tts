@@ -45,9 +45,14 @@ reps=[
 ("const MAX = 22, lines = [];","const MAX = 13, lines = [];"),
 ("const FONT = 56, BOX_W = 780, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 96;","const FONT = 56, BOX_W = 600, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 145;"),
 (old_pages,new_pages),
+("    if (!music) throw new Error('No music file found in UNMINDY/Music');","    if (!music) console.log('No music found; using generated ambient bed as fallback.');"),
+("    console.log(`Music: ${music.name}`);","    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
+("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);","    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
+("    await downloadDriveFile(token, music, musicPath);","    if (music) await downloadDriveFile(token, music, musicPath);"),
+("    await buildAudio(voicePath, musicPath, total, audioPath);","    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
 ]
 for i,(a,b) in enumerate(reps,1):
-    if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}')
+    if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}: {a[:80]}')
     s=s.replace(a,b,1)
 p.write_text(s)
 PY
