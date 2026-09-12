@@ -17,11 +17,15 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35 curl
+          sudo apt-get install -y ffmpeg fonts-urw-base35 curl python3-venv
+          python3 -m venv /tmp/whisperx
+          /tmp/whisperx/bin/python -m pip install --upgrade pip
+          /tmp/whisperx/bin/python -m pip install whisperx
+          /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           command -v ffmpeg
           command -v ffprobe
           fc-match Courier
-      - name: Fresh render
+      - name: Fresh render with exact script forced alignment
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: bash scripts/run-final-render.sh
@@ -32,4 +36,3 @@ jobs:
           set -euo pipefail
           test -s .render-work/output.mp4
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # Fresh rerender after ambient fallback fix.
