@@ -34,6 +34,37 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
+      - name: Apply render quality profile
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/render-reel.mjs')
+          s = p.read_text()
+          replacements = [
+              ("'-crf','12'", "'-crf','11'"),
+              ("'-maxrate','16M','-bufsize','24M',", ""),
+              ("'-ar','44100'", "'-ar','48000'"),
+              ("'-tag:v','avc1',out]", "'-tag:v','avc1','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',out]"),
+              ("'aq-mode=3:aq-strength=0.85:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10'", "'aq-mode=3:aq-strength=0.85:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10:keyint=60:min-keyint=30:scenecut=40:open-gop=0'"),
+          ]
+          for old, new in replacements:
+              count = s.count(old)
+              if count == 0:
+                  raise SystemExit(f'Quality patch target missing: {old}')
+              s = s.replace(old, new)
+          old = "if(v.pix_fmt!=='yuv420p'||String(v.codec_name)!=='h264')throw new Error(`Unexpected final video format: ${v.codec_name}/${v.pix_fmt}`);"
+          new = old + "const vb=Number(v.bit_rate||0);if(vb&&vb<5000000)throw new Error(`Final video bitrate is suspiciously low: ${vb} bps`);"
+          if s.count(old) != 1:
+              raise SystemExit('Verification patch target missing or ambiguous')
+          s = s.replace(old, new)
+          p.write_text(s)
+          PY
+          node --check scripts/render-reel.mjs
+          grep -o "-crf','[0-9]*'" scripts/render-reel.mjs | head -1
+          grep -q "color_primaries.*bt709" scripts/render-reel.mjs
+          ! grep -q "-maxrate','16M'" scripts/render-reel.mjs
+          ! grep -q "-bufsize','24M'" scripts/render-reel.mjs
       - name: Configure word-timestamp bridge
         run: |
           set -euo pipefail
