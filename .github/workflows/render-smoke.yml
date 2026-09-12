@@ -11,3 +11,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Smoke test
         run: echo "Render workflow runner is alive"
+      # second-commit trigger
