@@ -33,29 +33,25 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
-      - name: Prepare renderer fallback
+      - name: Prepare renderer for source-native quality
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           p = Path('scripts/render-reel.mjs')
           s = p.read_text()
-          old = "    if (!music) throw new Error('No music file found in UNMINDY/Music');"
-          new = "    if (!music) console.log('No music found; using generated ambient bed as fallback.');"
-          if old not in s: raise SystemExit('Expected music guard not found')
-          s = s.replace(old, new, 1)
-          old = "    console.log(`Music: ${music.name}`);"
-          new = "    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"
-          if old not in s: raise SystemExit('Expected music log line not found')
-          s = s.replace(old, new, 1)
-          old = "    await downloadDriveFile(token, music, musicPath);"
-          new = "    if (music) await downloadDriveFile(token, music, musicPath);"
-          if old not in s: raise SystemExit('Expected music download line not found')
-          s = s.replace(old, new, 1)
-          old = "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);"
-          new = "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"
-          if old not in s: raise SystemExit('Expected audio build lines not found')
-          s = s.replace(old, new, 1)
+          replacements = [
+            ("const OUTPUT_WIDTH = 1920;", "const OUTPUT_WIDTH = 1280;"),
+            ("const OUTPUT_HEIGHT = 1080;", "const OUTPUT_HEIGHT = 720;"),
+            ("    if (!music) throw new Error('No music file found in UNMINDY/Music');", "    if (!music) console.log('No music found; using generated ambient bed as fallback.');"),
+            ("    console.log(`Music: ${music.name}`);", "    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
+            ("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);", "    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
+            ("    await downloadDriveFile(token, music, musicPath);", "    if (music) await downloadDriveFile(token, music, musicPath);"),
+            ("    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);", "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
+          ]
+          for old, new in replacements:
+            if old not in s: raise SystemExit(f'Expected renderer text not found: {old}')
+            s = s.replace(old, new, 1)
           p.write_text(s)
           PY
       - name: Render and verify
@@ -75,4 +71,4 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # render-review-loop-v6
+      # render-review-loop-v7
