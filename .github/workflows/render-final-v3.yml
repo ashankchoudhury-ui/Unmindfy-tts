@@ -25,7 +25,7 @@ jobs:
           /tmp/whisperx/bin/python -m pip install whisperx
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
-      - name: Prepare renderer with final caption fix
+      - name: Prepare renderer with strict real caption timing
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -77,14 +77,17 @@ jobs:
             ("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);","    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
             ("    await downloadDriveFile(token, music, musicPath);","    if (music) await downloadDriveFile(token, music, musicPath);"),
             ("    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);","    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
-            ("async function main() {","function estimateTimings(script, total) {\n  const words = wordsOf(script);\n  const weights = words.map(w => Math.max(1, Math.pow(w.replace(/[^\\p{L}\\p{N}]/gu, '').length, 0.8)));\n  const totalWeight = weights.reduce((a,b)=>a+b,0)||1;\n  let cursor=0;\n  return words.map((text,i)=>{ const start=cursor; const dur=Math.max(0.08,total*weights[i]/totalWeight); cursor+=dur; return {text,start,end:Math.min(total,cursor)}; });\n}\n\nasync function main() {"),
-            ("    const timings = await wordTimings(job.script, job.tts_audio_url);","    let timings;\n    try { timings = await wordTimings(job.script, job.tts_audio_url); } catch (e) { console.log(`Remote transcription alignment failed; using script-proportional fallback: ${e.message}`); timings = estimateTimings(job.script, total); }")
+            ("            (\"async function main() {\",\"async function main() {\")" if False else "__never__", "__never__"),
+            ("    let timings;\n    try { timings = await wordTimings(job.script, job.tts_audio_url); } catch (e) { console.log(`Remote transcription alignment failed; using script-proportional fallback: ${e.message}`); timings = estimateTimings(job.script, total); }", "    const timings = await wordTimings(job.script, job.tts_audio_url);"),
           ]
           for a,b in reps:
-            if a not in s: raise SystemExit('Expected renderer text not found')
+            if a == '__never__': continue
+            if a not in s: raise SystemExit(f'Expected renderer text not found: {a[:80]}')
             s=s.replace(a,b,1)
           p.write_text(s)
           PY
+      - name: Wait for strict timing API deployment
+        run: sleep 30
       - name: Fresh render
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
