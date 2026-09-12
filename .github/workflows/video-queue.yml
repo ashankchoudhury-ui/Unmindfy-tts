@@ -1,9 +1,6 @@
 name: UNMINDY Video Queue
 
 on:
-  push:
-    paths:
-      - '.github/render-trigger'
   workflow_run:
     workflows: ["UNMINDY TTS Queue"]
     types: [completed]
@@ -11,7 +8,7 @@ on:
 
 jobs:
   render-reel:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -34,69 +31,7 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
-      - name: Configure maximum-quality render
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('scripts/render-reel.mjs')
-          s=p.read_text()
-          repl={
-            "'-crf','12'":"'-crf','4'",
-            "'-maxrate','16M','-bufsize','24M',":"",
-            """'-x264-params','aq-mode=3:aq-strength=0.85:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10'""":"""'-x264-params','aq-mode=3:aq-strength=0.90:qcomp=0.80:psy-rd=0.90,0.12:rc-lookahead=60:trellis=2:b-adapt=2:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10:keyint=60:min-keyint=30:scenecut=40:open-gop=0'""",
-            "'-ar','44100'":"'-ar','48000'",
-            "'-tag:v','avc1',out]":"'-tag:v','avc1','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',out]",
-            "return bw*bh-aw*ah||Number(b.size||0)-Number(a.size||0)||Date.parse(b.modifiedTime||0)-Date.parse(a.modifiedTime||0)":"return aw*ah-bw*bh||Number(a.size||0)-Number(b.size||0)||Date.parse(a.modifiedTime||0)-Date.parse(b.modifiedTime||0)",
-            "flags=lanczos,crop=1080:644":"flags=lanczos+accurate_rnd+full_chroma_int,crop=1080:644"
-          }
-          for old,new in repl.items():
-            if old not in s: raise SystemExit(f'Missing quality target: {old}')
-            s=s.replace(old,new)
-          s=s.replace("'-crf','4','-profile:v'","'-crf','4','-profile:v'")
-          p.write_text(s)
-          PY
-          node --check scripts/render-reel.mjs
-          python3 - <<'PY'
-          from pathlib import Path
-          s=Path('scripts/render-reel.mjs').read_text()
-          assert "'-crf','4'" in s
-          assert "'-maxrate','16M'" not in s
-          assert 'return aw*ah-bw*bh' in s
-          assert 'accurate_rnd+full_chroma_int' in s
-          assert 'psy-rd=0.90,0.12' in s
-          assert "'-ar','48000'" in s
-          print('maximum-quality render profile verified')
-          PY
-      - name: Configure word-timestamp bridge
-        run: |
-          set -euo pipefail
-          cat > /tmp/word-timing-bridge.mjs <<'EOF'
-          import { writeFile, unlink } from 'node:fs/promises';
-          import { execFile } from 'node:child_process';
-          import { promisify } from 'node:util';
-          const execFileP=promisify(execFile), realFetch=globalThis.fetch, PYTHON='/tmp/whisperx/bin/python';
-          globalThis.fetch=async(input,init={})=>{
-            const url=typeof input==='string'?input:input?.url||String(input);
-            if(!url.includes('/api/edit/transcribe')) return realFetch(input,init);
-            const body=typeof init.body==='string'?JSON.parse(init.body):{};
-            if(!body.audioUrl||!body.script) throw new Error('Caption timing request missing audioUrl/script');
-            const ar=await realFetch(body.audioUrl); if(!ar.ok) throw new Error(`TTS audio download failed: ${ar.status}`);
-            const bytes=Buffer.from(await ar.arrayBuffer());
-            const tmp=`/tmp/unmindfy-whisperx-${Date.now()}.wav`;
-            try{
-              await writeFile(tmp,bytes);
-              const {stdout,stderr}=await execFileP(PYTHON,['scripts/whisperx-word-timings.py',tmp,body.script],{maxBuffer:8*1024*1024});
-              if(stderr) console.error(stderr);
-              const raw=stdout.trim();
-              const first=raw.indexOf('['), last=raw.lastIndexOf(']');
-              if(first<0||last<first) throw new Error(`WhisperX returned no JSON array; stdout=${raw.slice(0,500)}`);
-              const words=JSON.parse(raw.slice(first,last+1));
-              return new Response(JSON.stringify({ok:true,model:'whisperx-base+w2v2',words,timing_source:'whisperx_forced_alignment'}),{status:200,headers:{'content-type':'application/json'}});
-            }finally{await unlink(tmp).catch(()=>{})}
-          };
-          EOF
       - name: Render and verify
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
-        run: node --import=/tmp/word-timing-bridge.mjs scripts/render-reel.mjs
+        run: node scripts/render-reel.mjs
