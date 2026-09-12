@@ -40,7 +40,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p=Path('scripts/render-reel.mjs'); s=p.read_text()
-          repl={"'-crf','12'":"'-crf','4'","'-maxrate','16M','-bufsize','24M',":"","'-ar','44100'":"'-ar','48000'","return bw*bh-aw*ah||Number(b.size||0)-Number(a.size||0)||Date.parse(b.modifiedTime||0)-Date.parse(a.modifiedTime||0)":"return aw*ah-bw*bh||Number(a.size||0)-Number(b.size||0)||Date.parse(a.modifiedTime||0)-Date.parse(b.modifiedTime||0)","flags=lanczos,crop=1080:644":"flags=lanczos+accurate_rnd+full_chroma_int,crop=1080:644"}
+          repl={"'-crf','12'":"'-crf','4'","'-maxrate','16M','-bufsize','24M',":"","'-ar','44100'":"'-ar','44100'","return bw*bh-aw*ah||Number(b.size||0)-Number(a.size||0)||Date.parse(b.modifiedTime||0)-Date.parse(a.modifiedTime||0)":"return aw*ah-bw*bh||Number(a.size||0)-Number(b.size||0)||Date.parse(a.modifiedTime||0)-Date.parse(b.modifiedTime||0)","flags=lanczos,crop=1080:644":"flags=lanczos+accurate_rnd+full_chroma_int,crop=1080:644"}
           for old,new in repl.items():
             if old not in s: raise SystemExit(f'Missing quality target: {old}')
             s=s.replace(old,new)
@@ -50,7 +50,6 @@ jobs:
           grep -q "'-crf','4'" scripts/render-reel.mjs
           grep -q "return aw\*ah-bw\*bh" scripts/render-reel.mjs
           grep -q "accurate_rnd+full_chroma_int" scripts/render-reel.mjs
-          grep -q "psy-rd=0.90,0.12" scripts/render-reel.mjs || true
       - name: Configure word-timestamp bridge
         run: |
           cat > /tmp/word-timing-bridge.mjs <<'EOF'
