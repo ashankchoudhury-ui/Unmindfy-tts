@@ -1,0 +1,72 @@
+name: UNMINDY Final Video Render
+
+on:
+  push:
+    paths:
+      - '.github/workflows/video-queue-final.yml'
+  workflow_dispatch:
+
+jobs:
+  render-reel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install render dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv curl
+          python3 -m venv /tmp/whisperx
+          /tmp/whisperx/bin/python -m pip install --upgrade pip
+          /tmp/whisperx/bin/python -m pip install whisperx
+          command -v ffmpeg
+          command -v ffprobe
+          /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
+          fc-match Courier
+      - name: Prepare corrected renderer
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/render-reel.mjs')
+          s = p.read_text()
+          replacements = [
+            ("const OUTPUT_WIDTH = 1920;", "const OUTPUT_WIDTH = 1280;"),
+            ("const OUTPUT_HEIGHT = 1080;", "const OUTPUT_HEIGHT = 720;"),
+            ("const MAX = 22, lines = [];", "const MAX = 13, lines = [];"),
+            ("const FONT = 56, BOX_W = 780, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 96;", "const FONT = 56, BOX_W = 600, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 145;"),
+            ("    if (!music) throw new Error('No music file found in UNMINDY/Music');", "    if (!music) console.log('No music found; using generated ambient bed as fallback.');"),
+            ("    console.log(`Music: ${music.name}`);", "    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
+            ("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);", "    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
+            ("    await downloadDriveFile(token, music, musicPath);", "    if (music) await downloadDriveFile(token, music, musicPath);"),
+            ("    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);", "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
+            ("async function main() {", "function estimateTimings(script, total) {\n  const words = wordsOf(script);\n  const weights = words.map(w => Math.max(1, Math.pow(w.replace(/[^\\p{L}\\p{N}]/gu, '').length, 0.8)));\n  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;\n  let cursor = 0;\n  return words.map((text, i) => {\n    const start = cursor;\n    const dur = Math.max(0.08, total * weights[i] / totalWeight);\n    cursor += dur;\n    return { text, start, end: Math.min(total, cursor) };\n  });\n}\n\nasync function main() {"),
+            ("    const timings = await wordTimings(job.script, job.tts_audio_url);", "    let timings;\n    try {\n      timings = await wordTimings(job.script, job.tts_audio_url);\n    } catch (e) {\n      console.log(`Remote transcription alignment failed; using script-proportional fallback: ${e.message}`);\n      timings = estimateTimings(job.script, total);\n    }"),
+          ]
+          for old, new in replacements:
+            if old not in s: raise SystemExit(f'Expected renderer text not found: {old}')
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Render and verify
+        env:
+          UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Render attempt $attempt/3"
+            if node scripts/render-reel.mjs; then exit 0; fi
+            if [ "$attempt" -lt 3 ]; then sleep 15; fi
+          done
+          exit 1
+      - name: Upload verified render to Dropbox
+        env:
+          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -s .render-work/output.mp4
+          node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
