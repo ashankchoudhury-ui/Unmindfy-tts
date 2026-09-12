@@ -18,28 +18,26 @@ jobs:
       group: unmindfy-video-render
       cancel-in-progress: false
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install FFmpeg, fonts, Python, and modern PocketSphinx
+      - name: Install render dependencies
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv
-          python3 -m venv /tmp/pocketsphinx-venv
-          /tmp/pocketsphinx-venv/bin/python -m pip install --upgrade pip
-          /tmp/pocketsphinx-venv/bin/python -m pip install --no-cache-dir pocketsphinx==5.1.1
-          echo "/tmp/pocketsphinx-venv/bin" >> "$GITHUB_PATH"
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv curl
+          base="https://archive.ubuntu.com/ubuntu/pool/universe/p/pocketsphinx"
+          curl -fsSL "$base/libpocketsphinx5_5.1.1-1_amd64.deb" -o /tmp/libpocketsphinx5.deb
+          curl -fsSL "$base/pocketsphinx_5.1.1-1_amd64.deb" -o /tmp/pocketsphinx.deb
+          curl -fsSL "$base/pocketsphinx-en-us_5.1.1-1_all.deb" -o /tmp/pocketsphinx-en-us.deb
+          sudo dpkg -i /tmp/libpocketsphinx5.deb /tmp/pocketsphinx-en-us.deb /tmp/pocketsphinx.deb
           command -v ffmpeg
           command -v ffprobe
           command -v pocketsphinx
-          command -v python3
           pocketsphinx help align >/dev/null
           fc-match Courier
-      - name: Configure Gemini native transcription bridge
+      - name: Configure Gemini word-timestamp bridge
         env:
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
@@ -47,29 +45,21 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
-          test -n "$GEMINI_API_KEY_1$GEMINI_API_KEY_2$GEMINI_API_KEY_3$GEMINI_API_KEY" || { echo 'No Gemini GitHub Actions secrets configured'; exit 1; }
           cat > /tmp/gemini-render-bridge.mjs <<'EOF'
           import { writeFile, unlink } from 'node:fs/promises';
           import { execFile } from 'node:child_process';
           import { promisify } from 'node:util';
-          const execFileP = promisify(execFile);
-          const realFetch = globalThis.fetch;
-          const API = 'https://generativelanguage.googleapis.com';
-          const MODEL = 'gemini-3.5-transcribe';
-          const keys = ['GEMINI_API_KEY_1','GEMINI_API_KEY_2','GEMINI_API_KEY_3','GEMINI_API_KEY'].map(k => process.env[k]).filter(Boolean);
-          const sec = v => { const m = String(v ?? '').match(/^([0-9.]+)s$/); return m ? Number(m[1]) : NaN; };
-          const norm = v => String(v || '').toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9']+/g, '').trim();
-          function annotations(data) { const out=[]; for(const step of data?.steps||[]) for(const content of step?.content||[]) for(const x of content?.annotations||[]) { if(x?.type!=='word_info') continue; const start=sec(x.start_offset),end=sec(x.end_offset),text=String(x.text||'').trim(); if(text&&Number.isFinite(start)&&Number.isFinite(end)&&end>=start) out.push({text,start,end}); } return out; }
-          function align(script,raw) { const target=String(script).replace(/\s+/g,' ').trim().split(' ').filter(Boolean),source=raw.map(x=>({...x,key:norm(x.text)})),out=[]; let cursor=0; for(const word of target){const key=norm(word); let hit=-1; for(let i=cursor;i<Math.min(source.length,cursor+12);i++) if(source[i].key===key){hit=i;break;} if(hit<0) throw new Error(`No real timestamp for script word: ${word}`); out.push({text:word,start:source[hit].start,end:source[hit].end}); cursor=hit+1;} return out; }
-          async function transcribeWithGemini(audioUrl,script,key){let uploadedName=null;try{const ar=await realFetch(audioUrl);if(!ar.ok)throw new Error(`Audio download ${ar.status}`);const bytes=Buffer.from(await ar.arrayBuffer());if(bytes.length>25*1024*1024)throw new Error(`Audio too large: ${bytes.length}`);const start=await realFetch(`${API}/upload/v1beta/files`,{method:'POST',headers:{'x-goog-api-key':key,'X-Goog-Upload-Protocol':'resumable','X-Goog-Upload-Command':'start','X-Goog-Upload-Header-Content-Length':String(bytes.length),'X-Goog-Upload-Header-Content-Type':'audio/wav','Content-Type':'application/json'},body:JSON.stringify({file:{display_name:`unmindfy-render-${Date.now()}.wav`}})});const startText=await start.text();if(!start.ok){const e=new Error(`Gemini Files start ${start.status}: ${startText}`);e.status=start.status;throw e;}const uploadUrl=start.headers.get('x-goog-upload-url');if(!uploadUrl)throw new Error('No Gemini upload URL');const finish=await realFetch(uploadUrl,{method:'POST',headers:{'Content-Length':String(bytes.length),'X-Goog-Upload-Offset':'0','X-Goog-Upload-Command':'upload, finalize'},body:bytes});const fd=await finish.json().catch(()=>({}));if(!finish.ok){const e=new Error(`Gemini Files upload ${finish.status}: ${JSON.stringify(fd)}`);e.status=finish.status;throw e;}const fileUri=fd?.file?.uri;uploadedName=fd?.file?.name||null;if(!fileUri)throw new Error('Gemini Files upload returned no URI');const gr=await realFetch(`${API}/v1beta/interactions`,{method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({model:MODEL,input:[{type:'audio',uri:fileUri,mime_type:'audio/wav'}],generation_config:{transcription_config:{mode:{type:'verbatim',timestamp_granularities:['word']},language_codes:['en-IN']}}})});const gd=await gr.json().catch(()=>({}));if(!gr.ok){const e=new Error(`Gemini transcription ${gr.status}: ${JSON.stringify(gd)}`);e.status=gr.status;throw e;}const raw=annotations(gd);if(!raw.length)throw new Error('Gemini returned no word timestamps');return align(script,raw);}finally{if(uploadedName)await realFetch(`${API}/v1beta/${uploadedName}`,{method:'DELETE',headers:{'x-goog-api-key':key}}).catch(()=>{});}}
-          async function forcedAlign(audioUrl,script){const response=await realFetch(audioUrl);if(!response.ok)throw new Error(`Audio download for forced alignment failed: ${response.status}`);const bytes=Buffer.from(await response.arrayBuffer()),temp=`/tmp/unmindfy-forced-${Date.now()}.wav`;try{await writeFile(temp,bytes);const {stdout}=await execFileP('python3',['scripts/local-word-timings.py',temp,script],{maxBuffer:4*1024*1024});const words=JSON.parse(stdout.trim());if(!Array.isArray(words)||!words.length)throw new Error('Forced alignment returned no words');return words;}finally{await unlink(temp).catch(()=>{});}}
-          globalThis.fetch=async(input,init={})=>{const url=typeof input==='string'?input:input?.url||String(input);if(url.includes('/api/edit/transcribe')){const body=typeof init.body==='string'?JSON.parse(init.body):{};let last;for(const key of keys){try{const words=await transcribeWithGemini(body.audioUrl,body.script,key);return new Response(JSON.stringify({ok:true,model:MODEL,words,timing_source:'gemini_word_timestamps'}),{status:200,headers:{'content-type':'application/json'}});}catch(e){last=e;if([401,403,429].includes(e?.status))continue;}}try{console.log(`Gemini transcription unavailable; using PocketSphinx forced alignment fallback: ${last?.message||'unknown Gemini error'}`);const words=await forcedAlign(body.audioUrl,body.script);return new Response(JSON.stringify({ok:true,model:'pocketsphinx-forced-align',words,timing_source:'pocketsphinx_forced_alignment'}),{status:200,headers:{'content-type':'application/json'}});}catch(fallbackError){throw new Error(`Gemini and forced alignment both failed. Gemini: ${last?.message||'unknown'}; fallback: ${fallbackError?.message||fallbackError}`);}}return realFetch(input,init);};
+          const execFileP=promisify(execFile), realFetch=globalThis.fetch, API='https://generativelanguage.googleapis.com', MODEL='gemini-3.5-transcribe';
+          const keys=['GEMINI_API_KEY_1','GEMINI_API_KEY_2','GEMINI_API_KEY_3','GEMINI_API_KEY'].map(x=>process.env[x]).filter(Boolean);
+          const sec=v=>{const m=String(v??'').match(/^([0-9.]+)s$/);return m?Number(m[1]):NaN};
+          const norm=v=>String(v||'').toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9']+/g,'').trim();
+          function annotations(d){const out=[];for(const s of d?.steps||[])for(const c of s?.content||[])for(const x of c?.annotations||[])if(x?.type==='word_info'){const start=sec(x.start_offset),end=sec(x.end_offset),text=String(x.text||'').trim();if(text&&Number.isFinite(start)&&Number.isFinite(end)&&end>=start)out.push({text,start,end})}return out}
+          function align(script,raw){const target=String(script).replace(/\s+/g,' ').trim().split(' ').filter(Boolean),source=raw.map(x=>({...x,key:norm(x.text)})),out=[];let cursor=0;for(const word of target){const key=norm(word);let hit=-1;for(let i=cursor;i<Math.min(source.length,cursor+12);i++)if(source[i].key===key){hit=i;break}if(hit<0)throw new Error(`No real timestamp for script word: ${word}`);out.push({text:word,start:source[hit].start,end:source[hit].end});cursor=hit+1}return out}
+          async function gemini(audioUrl,script,key){let uploaded=null;try{const ar=await realFetch(audioUrl);if(!ar.ok)throw new Error(`Audio download ${ar.status}`);const bytes=Buffer.from(await ar.arrayBuffer());if(bytes.length>25*1024*1024)throw new Error(`Audio too large: ${bytes.length}`);const st=await realFetch(`${API}/upload/v1beta/files`,{method:'POST',headers:{'x-goog-api-key':key,'X-Goog-Upload-Protocol':'resumable','X-Goog-Upload-Command':'start','X-Goog-Upload-Header-Content-Length':String(bytes.length),'X-Goog-Upload-Header-Content-Type':'audio/wav','Content-Type':'application/json'},body:JSON.stringify({file:{display_name:`unmindfy-render-${Date.now()}.wav`}})});const stText=await st.text();if(!st.ok){const e=new Error(`Gemini Files start ${st.status}: ${stText}`);e.status=st.status;throw e}const upload=st.headers.get('x-goog-upload-url');if(!upload)throw new Error('No Gemini upload URL');const fin=await realFetch(upload,{method:'POST',headers:{'Content-Length':String(bytes.length),'X-Goog-Upload-Offset':'0','X-Goog-Upload-Command':'upload, finalize'},body:bytes});const fd=await fin.json().catch(()=>({}));if(!fin.ok){const e=new Error(`Gemini Files upload ${fin.status}: ${JSON.stringify(fd)}`);e.status=fin.status;throw e}const uri=fd?.file?.uri;uploaded=fd?.file?.name;if(!uri)throw new Error('Gemini Files upload returned no URI');const gr=await realFetch(`${API}/v1beta/interactions`,{method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({model:MODEL,input:[{type:'audio',uri,mime_type:'audio/wav'}],generation_config:{transcription_config:{mode:{type:'verbatim',timestamp_granularities:['word']},language_codes:['en-IN']}}})});const gd=await gr.json().catch(()=>({}));if(!gr.ok){const e=new Error(`Gemini transcription ${gr.status}: ${JSON.stringify(gd)}`);e.status=gr.status;throw e}const raw=annotations(gd);if(!raw.length)throw new Error('Gemini returned no word timestamps');return align(script,raw)}finally{if(uploaded)await realFetch(`${API}/v1beta/${uploaded}`,{method:'DELETE',headers:{'x-goog-api-key':key}}).catch(()=>{})}}
+          async function fallback(audioUrl,script){const r=await realFetch(audioUrl);if(!r.ok)throw new Error(`Audio download for forced alignment failed: ${r.status}`);const bytes=Buffer.from(await r.arrayBuffer()),tmp=`/tmp/unmindfy-forced-${Date.now()}.wav`;try{await writeFile(tmp,bytes);const {stdout}=await execFileP('python3',['scripts/local-word-timings.py',tmp,script],{maxBuffer:4*1024*1024});return JSON.parse(stdout.trim())}finally{await unlink(tmp).catch(()=>{})}}
+          globalThis.fetch=async(input,init={})=>{const url=typeof input==='string'?input:input?.url||String(input);if(!url.includes('/api/edit/transcribe'))return realFetch(input,init);const body=typeof init.body==='string'?JSON.parse(init.body):{};let last;for(const key of keys){try{return new Response(JSON.stringify({ok:true,model:MODEL,words:await gemini(body.audioUrl,body.script,key),timing_source:'gemini_word_timestamps'}),{status:200,headers:{'content-type':'application/json'}})}catch(e){last=e;if(![401,403,429].includes(e?.status))break}}try{return new Response(JSON.stringify({ok:true,model:'pocketsphinx',words:await fallback(body.audioUrl,body.script),timing_source:'pocketsphinx_forced_alignment'}),{status:200,headers:{'content-type':'application/json'}})}catch(e){throw new Error(`Gemini and PocketSphinx timing failed. Gemini: ${last?.message||'unavailable'}; fallback: ${e?.message||e}`)}};
           EOF
-      - name: Render final Reel
+      - name: Render and verify
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node --import=/tmp/gemini-render-bridge.mjs scripts/render-reel.mjs
