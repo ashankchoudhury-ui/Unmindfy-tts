@@ -53,11 +53,11 @@ reps=[
 ("    await buildAudio(voicePath, musicPath, total, audioPath);","    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
 ]
 for i,(a,b) in enumerate(reps,1):
-    if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}: {a[:80]}')
+    if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}')
     s=s.replace(a,b,1)
 replacement="""async function wordTimings(script, audioUrl) {
   const r = await run('/tmp/whisperx/bin/python', ['scripts/forced_align.py', audioUrl, script]);
-  const lines = r.stdout.trim().split(/\\r?\\n/).map(x => x.trim()).filter(Boolean);
+  const lines = r.stdout.trim().split(String.fromCharCode(10)).map(x => x.trim()).filter(Boolean);
   let d;
   for (let i = lines.length - 1; i >= 0; i--) {
     try { d = JSON.parse(lines[i]); break; } catch {}
