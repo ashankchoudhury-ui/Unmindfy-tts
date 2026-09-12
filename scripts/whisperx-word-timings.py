@@ -12,6 +12,18 @@ def words(s):
     return [re.sub(r"^[“”\"']+|[“”\"']+$", "", w).replace("/", "") for w in re.split(r"\s+", str(s).strip()) if w.strip()]
 
 
+# Common ASR contractions that represent multiple script words as one spoken token.
+COMPOUND = {
+    "gonna": ("going", "to"),
+    "wanna": ("want", "to"),
+    "gotta": ("got", "to"),
+    "lemme": ("let", "me"),
+    "gimme": ("give", "me"),
+    "kinda": ("kind", "of"),
+    "sorta": ("sort", "of"),
+}
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: whisperx-word-timings.py AUDIO SCRIPT")
@@ -40,7 +52,36 @@ def main():
     source = [norm(x.get("word", "")) for x in recognized]
     out = []
     cursor = 0
-    for i, wanted in enumerate(target):
+    i = 0
+    while i < len(script):
+        wanted = target[i]
+        # If ASR collapses two script words into one spoken token, preserve the real
+        # source interval for both words instead of inventing a fake midpoint.
+        compound_hit = None
+        if i + 1 < len(script):
+            pair = (target[i], target[i + 1])
+            for spoken, expected in COMPOUND.items():
+                if pair == expected:
+                    for j in range(cursor, min(len(source), cursor + 10)):
+                        if source[j] == spoken:
+                            compound_hit = (j, spoken)
+                            break
+                    if compound_hit:
+                        break
+        if compound_hit:
+            hit, spoken = compound_hit
+            item = recognized[hit]
+            start = float(item.get("start", -1))
+            end = float(item.get("end", -1))
+            if start < 0 or end <= start:
+                raise RuntimeError(f"WhisperX returned invalid timing for compound {spoken!r}: {item}")
+            group = len(out)
+            out.append({"text": script[i], "start": start, "end": end, "i": i, "group": group})
+            out.append({"text": script[i + 1], "start": start, "end": end, "i": i + 1, "group": group})
+            cursor = hit + 1
+            i += 2
+            continue
+
         hit = None
         for j in range(cursor, min(len(source), cursor + 10)):
             if source[j] == wanted:
@@ -53,16 +94,21 @@ def main():
         end = float(item.get("end", -1))
         if start < 0 or end <= start:
             raise RuntimeError(f"WhisperX returned invalid timing for {script[i]!r}: {item}")
-        out.append({"text": script[i], "start": start, "end": end, "i": i})
+        out.append({"text": script[i], "start": start, "end": end, "i": i, "group": i})
         cursor = hit + 1
+        i += 1
 
     prev = -1.0
+    prev_group = None
     for i, item in enumerate(out):
-        if item["start"] <= prev:
+        if item["start"] < prev:
             raise RuntimeError(f"Non-monotonic real word timing at {i+1}: {item}")
+        if item["start"] == prev and item.get("group") != prev_group:
+            raise RuntimeError(f"Unexpected duplicate word timing at {i+1}: {item}")
         if item["end"] <= item["start"]:
             raise RuntimeError(f"Collapsed word timing at {i+1}: {item}")
         prev = item["start"]
+        prev_group = item.get("group")
 
     print(json.dumps(out, separators=(",", ":")))
 
