@@ -25,7 +25,7 @@ def main():
     device = "cpu"
     compute_type = "int8"
     model = whisperx.load_model("base", device=device, compute_type=compute_type, language="en")
-    result = model.transcribe(str(audio), language="en", batch_size=8)
+    result = model.transcribe(str(audio), language="en", batch_size=8, initial_prompt=" ".join(script))
     segments = result.get("segments") or []
     if not segments:
         raise RuntimeError("WhisperX returned no speech segments")
