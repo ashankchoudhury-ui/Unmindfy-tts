@@ -105,3 +105,4 @@ jobs:
           set -euo pipefail
           test -s .render-work/output.mp4
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
+      # Fresh-trigger marker: timing audit render.
