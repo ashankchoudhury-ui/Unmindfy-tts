@@ -61,11 +61,18 @@ jobs:
       - name: Render and verify
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
-        run: node scripts/render-reel.mjs
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "Render attempt $attempt/5"
+            if node scripts/render-reel.mjs; then exit 0; fi
+            if [ "$attempt" -lt 5 ]; then sleep 15; fi
+          done
+          exit 1
       - name: Upload verified render to Dropbox
         env:
           DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # render-review-loop-v5
+      # render-review-loop-v6
