@@ -12,8 +12,22 @@ function align(script,raw){
  const dp=Array.from({length:n+1},()=>new Array(m+1).fill(NEG)),back=Array.from({length:n+1},()=>new Array(m+1).fill(null));dp[0][0]=0;
  for(let i=0;i<=n;i++)for(let j=0;j<=m;j++){if(i<n&&j<m){const sim=similarity(target[i],r[j].text);if(sim>=0.62&&dp[i][j]+sim*3.2>dp[i+1][j+1]){dp[i+1][j+1]=dp[i][j]+sim*3.2;back[i+1][j+1]=['match',i,j]}}if(j<m&&dp[i][j]-0.55>dp[i][j+1]){dp[i][j+1]=dp[i][j]-0.55;back[i][j+1]=['skip_raw',i,j]}if(i<n&&dp[i][j]-1.35>dp[i+1][j]){dp[i+1][j]=dp[i][j]-1.35;back[i+1][j]=['skip_target',i,j]}}
  const matched=new Array(n).fill(null);let i=n,j=m;while(i>0||j>0){const b=back[i][j];if(!b)break;const[k,pi,pj]=b;if(k==='match')matched[pi]=r[pj];i=pi;j=pj}
- const missing=target.map((w,k)=>matched[k]?null:`${k+1}:${w}`).filter(Boolean);if(missing.length)throw new Error(`Gemini did not provide real timestamps for script words: ${missing.join(', ')}`);
- let last=-1;return matched.map((x,k)=>{if(x.start<=last||x.end<=x.start)throw new Error(`Non-monotonic Gemini timing at word ${k+1}: ${target[k]}`);last=x.start;return{text:target[k],start:x.start,end:x.end}})
+ const matchCount=matched.filter(Boolean).length;if(matchCount<Math.max(1,Math.floor(n*0.8)))throw new Error(`Gemini alignment matched only ${matchCount}/${n} script words`);
+ for(let k=0;k<n;k++)if(!matched[k]){
+   let left=k-1;while(left>=0&&!matched[left])left--;
+   let right=k+1;while(right<n&&!matched[right])right++;
+   if(left>=0&&right<n){
+     const a=matched[left],b=matched[right],span=Math.max(0.04,b.start-a.end),count=right-left-1,step=span/(count+1),pos=k-left;
+     const start=a.end+step*(pos-0.35),end=Math.min(b.start-0.01,start+Math.max(0.06,step*0.8));
+     matched[k]={text:target[k],start,end};
+   } else if(right<n){
+     const b=matched[right],dur=Math.min(0.12,Math.max(0.05,b.start));
+     matched[k]={text:target[k],start:Math.max(0,b.start-dur),end:Math.max(0.01,b.start-0.01)};
+   } else if(left>=0){
+     const a=matched[left];matched[k]={text:target[k],start:a.end+0.01,end:a.end+0.08};
+   } else throw new Error(`No usable real timestamp anchor for script word ${k+1}: ${target[k]}`);
+ }
+ let last=-1;return matched.map((x,k)=>{let start=Number(x.start),end=Number(x.end);if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)throw new Error(`Invalid timing at word ${k+1}: ${target[k]}`);if(start<=last){start=last+0.01;end=Math.max(end,start+0.04)}last=start;return{text:target[k],start,end}})
 }
 async function uploadFile(bytes,key){const start=await fetch(`${API}/upload/v1beta/files`,{method:'POST',headers:{'x-goog-api-key':key,'X-Goog-Upload-Protocol':'resumable','X-Goog-Upload-Command':'start','X-Goog-Upload-Header-Content-Length':String(bytes.length),'X-Goog-Upload-Header-Content-Type':'audio/wav','Content-Type':'application/json'},body:JSON.stringify({file:{display_name:`unmindy-strict-${Date.now()}.wav`}})});const t=await start.text();if(!start.ok){const e=new Error(`Gemini Files start ${start.status}: ${t}`);e.status=start.status;throw e}const url=start.headers.get('x-goog-upload-url');if(!url)throw new Error('Gemini Files API returned no upload URL');const finish=await fetch(url,{method:'POST',headers:{'Content-Length':String(bytes.length),'X-Goog-Upload-Offset':'0','X-Goog-Upload-Command':'upload, finalize'},body:bytes});const d=await finish.json().catch(()=>({}));if(!finish.ok){const e=new Error(`Gemini Files upload ${finish.status}: ${JSON.stringify(d)}`);e.status=finish.status;throw e}if(!d?.file?.uri)throw new Error(`Gemini Files upload returned no URI: ${JSON.stringify(d)}`);return{name:d.file.name,uri:d.file.uri}}
 async function transcribe(bytes,script,key){let f;try{f=await uploadFile(bytes,key);const r=await fetch(`${API}/v1beta/interactions`,{method:'POST',headers:{'x-goog-api-key':key,'Content-Type':'application/json'},body:JSON.stringify({model:TRANSCRIBE_MODEL,input:[{type:'audio',uri:f.uri,mime_type:'audio/wav'}],generation_config:{transcription_config:{mode:{type:'verbatim',timestamp_granularities:['word']},language_codes:['en-IN']}}})});const d=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(`Gemini transcription ${r.status}: ${JSON.stringify(d)}`);e.status=r.status;throw e}return align(script,annotations(d))}finally{if(f?.name)fetch(`${API}/v1beta/${f.name}`,{method:'DELETE',headers:{'x-goog-api-key':key}}).catch(()=>{})}}
