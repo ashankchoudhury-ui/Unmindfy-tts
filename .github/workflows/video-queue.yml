@@ -5,10 +5,15 @@ on:
     workflows: ["UNMINDY TTS Queue"]
     types: [completed]
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/video-queue.yml'
+      - 'scripts/upload-dropbox.mjs'
+      - 'scripts/render-reel.mjs'
 
 jobs:
   render-reel:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -32,3 +37,9 @@ jobs:
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: node scripts/render-reel.mjs
+      - name: Upload verified render to Dropbox
+        env:
+          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
