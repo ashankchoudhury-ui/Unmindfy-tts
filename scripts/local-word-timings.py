@@ -46,7 +46,7 @@ def main():
     prepared = prepare_audio(audio)
     try:
         p = subprocess.run(
-            [sys.executable, "-m", "pocketsphinx", "align", str(prepared), " ".join(target)],
+            ["pocketsphinx", "align", str(prepared), " ".join(target)],
             check=True,
             capture_output=True,
             text=True,
