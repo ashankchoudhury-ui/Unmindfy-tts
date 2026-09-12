@@ -61,10 +61,17 @@ jobs:
           p.write_text(s)
           PY
           node --check scripts/render-reel.mjs
-          grep -o "-crf','[0-9]*'" scripts/render-reel.mjs | head -1
-          grep -q "color_primaries.*bt709" scripts/render-reel.mjs
-          ! grep -q "-maxrate','16M'" scripts/render-reel.mjs
-          ! grep -q "-bufsize','24M'" scripts/render-reel.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/render-reel.mjs').read_text()
+          assert "'-crf','11'" in s
+          assert "'-maxrate','16M'" not in s
+          assert "'-bufsize','24M'" not in s
+          assert "color_primaries','bt709" in s
+          assert "'-ar','48000'" in s
+          assert 'open-gop=0' in s
+          print('Render quality profile verified')
+          PY
       - name: Configure word-timestamp bridge
         run: |
           set -euo pipefail
