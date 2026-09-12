@@ -45,22 +45,11 @@ reps=[
 ("const MAX = 22, lines = [];","const MAX = 13, lines = [];"),
 ("const FONT = 56, BOX_W = 780, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 96;","const FONT = 56, BOX_W = 600, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 145;"),
 (old_pages,new_pages),
-("    if (!music) throw new Error('No music file found in UNMINDY/Music');","    if (!music) console.log('No music found; using generated ambient bed as fallback.');"),
-("    console.log(`Music: ${music.name}`);","    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
-("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);","    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
-("    await downloadDriveFile(token, music, musicPath);","    if (music) await downloadDriveFile(token, music, musicPath);"),
-("    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);","    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
-("    let timings;\n    try { timings = await wordTimings(job.script, job.tts_audio_url); } catch (e) { console.log(`Remote transcription alignment failed; using script-proportional fallback: ${e.message}`); timings = estimateTimings(job.script, total); }","    const timings = await wordTimings(job.script, job.tts_audio_url);"),
 ]
-for a,b in reps:
-    if a not in s: raise SystemExit('Expected renderer text not found')
+for i,(a,b) in enumerate(reps,1):
+    if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}')
     s=s.replace(a,b,1)
 p.write_text(s)
 PY
 sleep 30
-for attempt in 1 2 3; do
-  echo "Render attempt $attempt/3"
-  if node scripts/render-reel.mjs; then exit 0; fi
-  if [ "$attempt" -lt 3 ]; then sleep 15; fi
-done
-exit 1
+node scripts/render-reel.mjs
