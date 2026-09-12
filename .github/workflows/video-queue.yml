@@ -58,6 +58,10 @@ jobs:
           if s.count(old) != 1:
               raise SystemExit('Verification patch target missing or ambiguous')
           s = s.replace(old, new)
+          old_audio = "Number(a.sample_rate)!==44100"
+          if s.count(old_audio) != 1:
+              raise SystemExit('Audio sample-rate verification target missing or ambiguous')
+          s = s.replace(old_audio, "Number(a.sample_rate)!==48000")
           p.write_text(s)
           PY
           node --check scripts/render-reel.mjs
@@ -70,6 +74,7 @@ jobs:
           assert "color_primaries','bt709" in s
           assert "'-ar','48000'" in s
           assert 'open-gop=0' in s
+          assert 'Number(a.sample_rate)!==48000' in s
           print('Render quality profile verified')
           PY
       - name: Configure word-timestamp bridge
