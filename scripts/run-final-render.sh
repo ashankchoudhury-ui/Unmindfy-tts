@@ -56,14 +56,8 @@ for i,(a,b) in enumerate(reps,1):
     if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}')
     s=s.replace(a,b,1)
 replacement="""async function wordTimings(script, audioUrl) {
-  const r = await run('/tmp/whisperx/bin/python', ['scripts/forced_align.py', audioUrl, script]);
-  const lines = r.stdout.trim().split(String.fromCharCode(10)).map(x => x.trim()).filter(Boolean);
-  let d;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try { d = JSON.parse(lines[i]); break; } catch {}
-  }
-  if (!d) throw new Error(`Forced alignment returned no JSON output. stdout=${r.stdout.slice(-1000)} stderr=${r.stderr.slice(-1000)}`);
-  if (!Array.isArray(d.words) || !d.words.length) throw new Error('Forced alignment returned no word timings');
+  const d = await api('/api/edit/transcribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioUrl, script }) });
+  if (!Array.isArray(d.words) || !d.words.length) throw new Error('Timing service returned no word timings');
   const words = wordsOf(script);
   return validateTimings(d.words.map((w, i) => ({ text: words[i], start: Number(w.start), end: Number(w.end), i })), script);
 }"""
