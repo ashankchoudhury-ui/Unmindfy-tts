@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 
-// review-loop-trigger-v5
+// review-loop-trigger-v6: fresh timing render trigger
 const token = process.env.DROPBOX_ACCESS_TOKEN;
 const filePath = process.argv[2];
 const dropboxPath = process.argv[3];
