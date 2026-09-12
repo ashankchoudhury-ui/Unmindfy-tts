@@ -3,10 +3,11 @@ name: UNMINDY Force Reel Render PR
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
 
 jobs:
   render:
-    if: github.actor == 'ashankchoudhury-ui'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
