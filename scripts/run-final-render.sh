@@ -71,3 +71,4 @@ p.write_text(s2)
 PY
 sleep 30
 node scripts/render-reel.mjs
+# fresh local forced-alignment trigger marker
