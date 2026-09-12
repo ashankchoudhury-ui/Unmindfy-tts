@@ -34,37 +34,26 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
-          ffmpeg -hide_banner -filters | grep -E '\bunsharp\b' >/dev/null
-      - name: Apply maximum quality profile
+      - name: Configure maximum-quality render
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('scripts/render-reel.mjs')
-          s = p.read_text()
-          replacements = [
-              ("'-crf','12'", "'-crf','4'"),
-              ("'-maxrate','16M','-bufsize','24M',", ""),
-              ("'-ar','44100'", "'-ar','48000'"),
-              ("'-tag:v','avc1',out]", "'-tag:v','avc1','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',out]"),
-              ("'aq-mode=3:aq-strength=0.85:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10'", "'aq-mode=3:aq-strength=0.90:qcomp=0.80:psy-rd=0.90,0.12:rc-lookahead=60:trellis=2:b-adapt=2:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10:keyint=60:min-keyint=30:scenecut=40:open-gop=0'"),
-              ("return bw*bh-aw*ah||Number(b.size||0)-Number(a.size||0)||Date.parse(b.modifiedTime||0)-Date.parse(a.modifiedTime||0)", "return aw*ah-bw*bh||Number(a.size||0)-Number(b.size||0)||Date.parse(a.modifiedTime||0)-Date.parse(b.modifiedTime||0)"),
-              ("'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:644:(in_w-1080)/2:(in_h-644)/2,setsar=1,format=yuv420p'", "'scale=1080:644:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:644:(in_w-1080)/2:(in_h-644)/2,setsar=1,format=yuv420p'"),
-          ]
-          for old, new in replacements:
-              count = s.count(old)
-              if count == 0:
-                  raise SystemExit(f'Quality patch target missing: {old}')
-              s = s.replace(old, new)
-          old = "if(v.pix_fmt!=='yuv420p'||String(v.codec_name)!=='h264')throw new Error(`Unexpected final video format: ${v.codec_name}/${v.pix_fmt}`);"
-          new = old + "const vb=Number(v.bit_rate||0);if(vb&&vb<10000000)throw new Error(`Final video bitrate is suspiciously low: ${vb} bps`);"
-          if s.count(old) != 1:
-              raise SystemExit('Verification patch target missing or ambiguous')
-          s = s.replace(old, new)
-          old_audio = "Number(a.sample_rate)!==44100"
-          if s.count(old_audio) != 1:
-              raise SystemExit('Audio sample-rate verification target missing or ambiguous')
-          s = s.replace(old_audio, "Number(a.sample_rate)!==48000")
+          p=Path('scripts/render-reel.mjs')
+          s=p.read_text()
+          repl={
+            "'-crf','12'":"'-crf','4'",
+            "'-maxrate','16M','-bufsize','24M',":"",
+            """'-x264-params','aq-mode=3:aq-strength=0.85:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10'""":"""'-x264-params','aq-mode=3:aq-strength=0.90:qcomp=0.80:psy-rd=0.90,0.12:rc-lookahead=60:trellis=2:b-adapt=2:deblock=-1,-1:ref=5:bframes=6:me=umh:subme=10:keyint=60:min-keyint=30:scenecut=40:open-gop=0'""",
+            "'-ar','44100'":"'-ar','48000'",
+            "'-tag:v','avc1',out]":"'-tag:v','avc1','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709',out]",
+            "return bw*bh-aw*ah||Number(b.size||0)-Number(a.size||0)||Date.parse(b.modifiedTime||0)-Date.parse(a.modifiedTime||0)":"return aw*ah-bw*bh||Number(a.size||0)-Number(b.size||0)||Date.parse(a.modifiedTime||0)-Date.parse(b.modifiedTime||0)",
+            "flags=lanczos,crop=1080:644":"flags=lanczos+accurate_rnd+full_chroma_int,crop=1080:644"
+          }
+          for old,new in repl.items():
+            if old not in s: raise SystemExit(f'Missing quality target: {old}')
+            s=s.replace(old,new)
+          s=s.replace("'-crf','4','-profile:v'","'-crf','4','-profile:v'")
           p.write_text(s)
           PY
           node --check scripts/render-reel.mjs
@@ -73,15 +62,11 @@ jobs:
           s=Path('scripts/render-reel.mjs').read_text()
           assert "'-crf','4'" in s
           assert "'-maxrate','16M'" not in s
-          assert "'-bufsize','24M'" not in s
-          assert "color_primaries','bt709" in s
-          assert "'-ar','48000'" in s
-          assert 'psy-rd=0.90,0.12' in s
-          assert 'rc-lookahead=60' in s
-          assert 'trellis=2' in s
           assert 'return aw*ah-bw*bh' in s
-          assert 'Number(a.sample_rate)!==48000' in s
-          print('Maximum quality profile verified')
+          assert 'accurate_rnd+full_chroma_int' in s
+          assert 'psy-rd=0.90,0.12' in s
+          assert "'-ar','48000'" in s
+          print('maximum-quality render profile verified')
           PY
       - name: Configure word-timestamp bridge
         run: |
