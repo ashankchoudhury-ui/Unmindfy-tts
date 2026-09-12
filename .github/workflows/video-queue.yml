@@ -1,19 +1,15 @@
 name: UNMINDY Video Queue
 
 on:
-  workflow_run:
-    workflows: ["UNMINDY TTS Queue"]
-    types: [completed]
-  workflow_dispatch:
   push:
     paths:
       - '.github/workflows/video-queue.yml'
       - 'scripts/upload-dropbox.mjs'
       - 'scripts/render-reel.mjs'
+  workflow_dispatch:
 
 jobs:
   render-reel:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -33,7 +29,7 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
-      - name: Prepare renderer for robust source-native render
+      - name: Prepare renderer for source-native final render
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -86,14 +82,15 @@ jobs:
             ("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);", "    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
             ("    await downloadDriveFile(token, music, musicPath);", "    if (music) await downloadDriveFile(token, music, musicPath);"),
             ("    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, musicPath, total, audioPath);", "    await buildAmbient(total, ambientPath);\n    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
-            ("async function main() {", "function estimateTimings(script, total) {\n  const words = wordsOf(script);\n  const weights = words.map(w => Math.max(1, Math.pow(w.replace(/[^\\p{L}\\p{N}]/gu, '').length, 0.8)));\n  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;\n  let cursor = 0;\n  return words.map((text, i) => {\n    const start = cursor;\n    const dur = Math.max(0.08, total * weights[i] / totalWeight);\n    cursor += dur;\n    return { text, start, end: Math.min(total, cursor) };\n  });\n}\n\nasync function main() {"),
-            ("    const timings = await wordTimings(job.script, job.tts_audio_url);", "    let timings;\n    try {\n      timings = await wordTimings(job.script, job.tts_audio_url);\n    } catch (e) {\n      console.log(`Remote transcription alignment failed; using script-proportional fallback: ${e.message}`);\n      timings = estimateTimings(job.script, total);\n    }"),
+            ("    const timings = await wordTimings(job.script, job.tts_audio_url);", "    const timings = await wordTimings(job.script, job.tts_audio_url);"),
           ]
           for old, new in replacements:
             if old not in s: raise SystemExit(f'Expected renderer text not found: {old}')
             s = s.replace(old, new, 1)
           p.write_text(s)
           PY
+      - name: Wait for timing API deployment
+        run: sleep 60
       - name: Render and verify
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
@@ -112,4 +109,3 @@ jobs:
           set -euo pipefail
           test -s .render-work/output.mp4
           node scripts/upload-dropbox.mjs .render-work/output.mp4 "/reel-${{ github.run_id }}-reference-style-final.mp4"
-      # render-review-loop-v11
