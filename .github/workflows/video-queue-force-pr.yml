@@ -54,6 +54,19 @@ jobs:
             } finally { await unlink(temp).catch(() => {}); }
           };
           EOF
+      - name: Fix caption overlap before render
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/render-reel.mjs')
+          s = p.read_text()
+          old = "const end = next ? Math.max(timing.end + 0.08, next.start) : Math.max(timing.end + 0.25, timing.start + 0.4);"
+          new = "const end = next ? next.start : Math.max(timing.end + 0.25, timing.start + 0.4);"
+          if old not in s:
+              raise SystemExit('Expected caption timing line not found')
+          p.write_text(s.replace(old, new))
+          print('Caption overlap fix applied')
+          PY
       - name: Render and export Reel 3
         env:
           UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
