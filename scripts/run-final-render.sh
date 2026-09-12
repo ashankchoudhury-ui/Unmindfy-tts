@@ -2,6 +2,7 @@
 set -euo pipefail
 python3 - <<'PY'
 from pathlib import Path
+import re
 p=Path('scripts/render-reel.mjs')
 s=p.read_text()
 old_pages="""function captionPages(words) {
@@ -54,7 +55,16 @@ reps=[
 for i,(a,b) in enumerate(reps,1):
     if a not in s: raise SystemExit(f'Expected renderer text not found at replacement {i}: {a[:80]}')
     s=s.replace(a,b,1)
-p.write_text(s)
+replacement="""async function wordTimings(script, audioUrl) {
+  const r = await run('/tmp/whisperx/bin/python', ['scripts/forced_align.py', audioUrl, script]);
+  const d = JSON.parse(r.stdout);
+  if (!Array.isArray(d.words) || !d.words.length) throw new Error('Forced alignment returned no word timings');
+  const words = wordsOf(script);
+  return validateTimings(d.words.map((w, i) => ({ text: words[i], start: Number(w.start), end: Number(w.end), i })), script);
+}"""
+s2,n=re.subn(r"async function wordTimings\(script, audioUrl\) \{.*?\n\}\n\nfunction revealCaption",replacement+"\n\nfunction revealCaption",s,count=1,flags=re.S)
+if n!=1: raise SystemExit('Could not replace wordTimings function')
+p.write_text(s2)
 PY
 sleep 30
 node scripts/render-reel.mjs
