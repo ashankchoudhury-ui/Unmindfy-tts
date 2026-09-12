@@ -25,7 +25,7 @@ jobs:
           python3 -m venv /tmp/pocketsphinx-venv
           /tmp/pocketsphinx-venv/bin/python -m pip install --upgrade pip
           /tmp/pocketsphinx-venv/bin/python -m pip install --no-cache-dir pocketsphinx==5.1.1
-          echo "/tmp/pocketsphinx-venv/bin" >> "$GITHUB_PATH"
+          export PATH="/tmp/pocketsphinx-venv/bin:$PATH"
           pocketsphinx help align >/dev/null
           fc-match Courier
       - name: Configure forced-alignment bridge
