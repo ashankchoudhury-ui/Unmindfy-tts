@@ -1,0 +1,59 @@
+name: UNMINDY Force Reel Render PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: unmindfy-video-render
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install render tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-urw-base35 python3 python3-venv
+          python3 -m venv /tmp/pocketsphinx-venv
+          /tmp/pocketsphinx-venv/bin/python -m pip install --upgrade pip
+          /tmp/pocketsphinx-venv/bin/python -m pip install --no-cache-dir pocketsphinx==5.1.1
+          export PATH="/tmp/pocketsphinx-venv/bin:$PATH"
+          pocketsphinx help align >/dev/null
+          fc-match Courier
+      - name: Configure forced-alignment bridge
+        run: |
+          cat > /tmp/render-bridge.mjs <<'EOF'
+          import { writeFile, unlink } from 'node:fs/promises';
+          import { execFile } from 'node:child_process';
+          import { promisify } from 'node:util';
+          const execFileP = promisify(execFile);
+          const realFetch = globalThis.fetch;
+          globalThis.fetch = async (input, init = {}) => {
+            const url = typeof input === 'string' ? input : input?.url || String(input);
+            if (!url.includes('/api/edit/transcribe')) return realFetch(input, init);
+            const body = typeof init.body === 'string' ? JSON.parse(init.body) : {};
+            const response = await realFetch(body.audioUrl);
+            if (!response.ok) throw new Error(`Audio download failed: ${response.status}`);
+            const bytes = Buffer.from(await response.arrayBuffer());
+            const temp = `/tmp/unmindfy-${Date.now()}.wav`;
+            try {
+              await writeFile(temp, bytes);
+              const { stdout } = await execFileP('python3', ['scripts/local-word-timings.py', temp, body.script], { maxBuffer: 4 * 1024 * 1024 });
+              const words = JSON.parse(stdout.trim());
+              return new Response(JSON.stringify({ ok: true, model: 'pocketsphinx-forced-align', words, timing_source: 'pocketsphinx_forced_alignment' }), { status: 200, headers: { 'content-type': 'application/json' } });
+            } finally { await unlink(temp).catch(() => {}); }
+          };
+          EOF
+      - name: Render and export Reel 3
+        env:
+          UNMINDY_CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
+        run: node --import=/tmp/render-bridge.mjs scripts/render-reel.mjs
