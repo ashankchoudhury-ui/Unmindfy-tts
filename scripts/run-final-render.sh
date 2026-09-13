@@ -33,17 +33,25 @@ if n != 1: raise SystemExit('captionPages patch target missing')
 
 s = re.sub(
     r'const FONT = \d+, BOX_W = \d+, SAFE_X = \(OUTPUT_WIDTH - BOX_W\) / 2, CAPTION_Y = \d+;',
-    'const FONT = 52, BOX_W = 520, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 165;',
+    'const FONT = 56, BOX_W = 560, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 165;',
     s, count=1)
 
 s = re.sub(
     r"'Style: Ref,Courier,\$\{FONT\},[^']*'",
-    "'Style: Ref,Courier,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.8,1.2,7,0,0,0,1'",
+    "'Style: Ref,Courier,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.2,0.8,7,0,0,0,1'",
     s, count=1)
+
+# Reference style uses a clean, static white caption with a restrained dark edge.
+static_reveal = '''function revealCaption(page, startIndex, timings, eventStart) {
+  const lines = layoutWords(page).map(line => line.map(assEscape).join(' '));
+  return { text: lines.join('\\N'), nextIndex: startIndex + page.length };
+}'''
+s, n = re.subn(r'function revealCaption\(page, startIndex, timings, eventStart\) \{.*?\n\}', static_reveal, s, count=1, flags=re.S)
+if n != 1: raise SystemExit('revealCaption patch target missing')
 
 s = s.replace(
     "'-vf', `${resize},subtitles='${assPath}':original_size=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}`,",
-    "'-vf', `${resize},eq=contrast=1.06:brightness=-0.015:saturation=0.90:gamma=0.98,subtitles='${assPath}':original_size=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}`,",
+    "'-vf', `${resize},eq=contrast=1.04:brightness=-0.025:saturation=0.84:gamma=0.98,subtitles='${assPath}':original_size=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}`,",
     1)
 
 s = s.replace("if (!music) throw new Error('No music file found in UNMINDY/Music');", "if (!music) console.log('No music found; using generated ambient bed as fallback.');", 1)
@@ -69,4 +77,4 @@ p.write_text(s)
 PY
 sleep 30
 node scripts/render-reel.mjs
-# reference-style typography + subtle color-grade pass
+# reference screenshot: static centered Courier-style text + subtle muted grade
