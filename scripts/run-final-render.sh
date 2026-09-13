@@ -43,7 +43,7 @@ s = re.sub(
 
 static_reveal = '''function revealCaption(page, startIndex, timings, eventStart) {
   const lines = layoutWords(page).map(line => line.map(assEscape).join(' '));
-  return { text: lines.join('\\N'), nextIndex: startIndex + page.length };
+  return { text: lines.join(String.fromCharCode(92) + 'N'), nextIndex: startIndex + page.length };
 }'''
 s, n = re.subn(r'function revealCaption\(page, startIndex, timings, eventStart\) \{.*?\n\}', lambda m: static_reveal, s, count=1, flags=re.S)
 if n != 1: raise SystemExit('revealCaption patch target missing')
