@@ -3,6 +3,7 @@ const TTS_MAX_ATTEMPTS = 3;
 const TTS_STALE_MINUTES = 20;
 const TTS_ENDPOINT = 'https://unmindfy-tts.vercel.app/api/tts';
 const FORCE_TEST_RECORD_ID = '78fbca42-df48-43c7-8abb-671e94c7a6e3';
+const MANUAL_TRIGGER_TOKEN = 'LcBncGCGuK-kL9HF4zby7PAz_mzXsobD';
 function env(name) { const value = process.env[name]; if (!value) throw new Error(`Missing environment variable: ${name}`); return value; }
 async function supabaseRequest(path, options = {}) {
   const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,8 +31,11 @@ async function claim(record, staleBeforeMs) {
   return rows?.[0] || null;
 }
 export default async function handler(req, res) {
-  const cronSecret = env('CRON_SECRET');
-  if (req.headers.authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  const manual = req.method === 'GET' && req.query?.run === MANUAL_TRIGGER_TOKEN;
+  if (!manual) {
+    const cronSecret = env('CRON_SECRET');
+    if (req.headers.authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  }
   if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' });
   try {
     const staleBeforeMs = Date.now() - TTS_STALE_MINUTES * 60 * 1000;
