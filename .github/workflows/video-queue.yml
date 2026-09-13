@@ -43,10 +43,14 @@ jobs:
             ("const OUTPUT_HEIGHT = 1080;", "const OUTPUT_HEIGHT = 644;"),
             ("'-crf', '10'", "'-crf', '4'"),
             ("flags=lanczos,crop=", "flags=lanczos+accurate_rnd+full_chroma_int,crop="),
+            ("    if (!music) throw new Error('No music file found in UNMINDY/Music');", "    if (!music) console.log('No music found; using generated ambient bed.');"),
+            ("    console.log(`Music: ${music.name}`);", "    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
+            ("    await downloadDriveFile(token, music, musicPath);", "    if (music) await downloadDriveFile(token, music, musicPath);"),
+            ("    await buildAudio(voicePath, musicPath, total, audioPath);", "    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
           ]
           for old, new in replacements:
             if old not in s:
-              raise SystemExit(f'Expected quality target not found: {old}')
+              raise SystemExit(f'Expected audit target not found: {old}')
             s = s.replace(old, new, 1)
           p.write_text(s)
           PY
@@ -55,6 +59,7 @@ jobs:
           grep -q "const OUTPUT_HEIGHT = 644" scripts/render-reel.mjs
           grep -q "'-crf', '4'" scripts/render-reel.mjs
           grep -q "accurate_rnd+full_chroma_int" scripts/render-reel.mjs
+          grep -q "using generated ambient bed" scripts/render-reel.mjs
       - name: Configure real word timings
         run: |
           set -euo pipefail
