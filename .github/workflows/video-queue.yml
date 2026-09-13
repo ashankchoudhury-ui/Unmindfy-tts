@@ -39,6 +39,8 @@ jobs:
           p = Path('scripts/render-reel.mjs')
           s = p.read_text()
           replacements = [
+            ("const OUTPUT_WIDTH = 1920;", "const OUTPUT_WIDTH = 1080;"),
+            ("const OUTPUT_HEIGHT = 1080;", "const OUTPUT_HEIGHT = 644;"),
             ("'-crf', '10'", "'-crf', '4'"),
             ("flags=lanczos,crop=", "flags=lanczos+accurate_rnd+full_chroma_int,crop="),
           ]
@@ -49,11 +51,10 @@ jobs:
           p.write_text(s)
           PY
           node --check scripts/render-reel.mjs
+          grep -q "const OUTPUT_WIDTH = 1080" scripts/render-reel.mjs
+          grep -q "const OUTPUT_HEIGHT = 644" scripts/render-reel.mjs
           grep -q "'-crf', '4'" scripts/render-reel.mjs
           grep -q "accurate_rnd+full_chroma_int" scripts/render-reel.mjs
-          grep -q "OUTPUT_WIDTH = 1920" scripts/render-reel.mjs
-          grep -q "OUTPUT_HEIGHT = 1080" scripts/render-reel.mjs
-          grep -q "sourceScore(b) - sourceScore(a)" scripts/render-reel.mjs
       - name: Configure real word timings
         run: |
           set -euo pipefail
