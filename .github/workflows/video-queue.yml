@@ -45,6 +45,7 @@ jobs:
             ("flags=lanczos,crop=", "flags=lanczos+accurate_rnd+full_chroma_int,crop="),
             ("    if (!music) throw new Error('No music file found in UNMINDY/Music');", "    if (!music) console.log('No music found; using generated ambient bed.');"),
             ("    console.log(`Music: ${music.name}`);", "    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
+            ("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);", "    const musicPath = path.join(WORK, 'music.mp3');"),
             ("    await downloadDriveFile(token, music, musicPath);", "    if (music) await downloadDriveFile(token, music, musicPath);"),
             ("    await buildAudio(voicePath, musicPath, total, audioPath);", "    await buildAudio(voicePath, music ? musicPath : ambientPath, total, audioPath);"),
           ]
