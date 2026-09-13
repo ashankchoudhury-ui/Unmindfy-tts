@@ -31,7 +31,7 @@ jobs:
           command -v ffprobe
           /tmp/whisperx/bin/python -c "import whisperx; print('WhisperX ready')"
           fc-match Courier
-      - name: Audit and prepare renderer
+      - name: Audit renderer and apply quality-only overrides
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -39,24 +39,21 @@ jobs:
           p = Path('scripts/render-reel.mjs')
           s = p.read_text()
           replacements = [
-            ("return bw*bh-aw*ah||Number(b.size||0)-Number(a.size||0)||Date.parse(b.modifiedTime||0)-Date.parse(a.modifiedTime||0)",
-             "return aw*ah-bw*bh||Number(a.size||0)-Number(b.size||0)||Date.parse(a.modifiedTime||0)-Date.parse(b.modifiedTime||0)"),
-            ("const end = next ? Math.max(timing.end + 0.08, next.start) : Math.max(timing.end + 0.28, start + 0.45);",
-             "const end = next ? next.start : Math.max(timing.end + 0.28, start + 0.45);"),
-            ("flags=lanczos,crop=1080:644", "flags=lanczos+accurate_rnd+full_chroma_int,crop=1080:644"),
-            ("'-crf','12'", "'-crf','4'"),
-            ("'-maxrate','16M','-bufsize','24M',", ""),
+            ("'-crf', '10'", "'-crf', '4'"),
+            ("flags=lanczos,crop=", "flags=lanczos+accurate_rnd+full_chroma_int,crop="),
           ]
           for old, new in replacements:
             if old not in s:
-              raise SystemExit(f'Expected audit target not found: {old}')
+              raise SystemExit(f'Expected quality target not found: {old}')
             s = s.replace(old, new, 1)
           p.write_text(s)
           PY
           node --check scripts/render-reel.mjs
-          grep -q "return aw\*ah-bw\*bh" scripts/render-reel.mjs
-          grep -q "'-crf','4'" scripts/render-reel.mjs
+          grep -q "'-crf', '4'" scripts/render-reel.mjs
           grep -q "accurate_rnd+full_chroma_int" scripts/render-reel.mjs
+          grep -q "OUTPUT_WIDTH = 1920" scripts/render-reel.mjs
+          grep -q "OUTPUT_HEIGHT = 1080" scripts/render-reel.mjs
+          grep -q "sourceScore(b) - sourceScore(a)" scripts/render-reel.mjs
       - name: Configure real word timings
         run: |
           set -euo pipefail
@@ -64,7 +61,7 @@ jobs:
           import { writeFile, unlink } from 'node:fs/promises';
           import { execFile } from 'node:child_process';
           import { promisify } from 'node:util';
-          const execFileP = promisify(execFile), realFetch = globalThis.fetch, PYTHON = '/tmp/whisperx/bin/python';
+          const execFileP = promisify(execFile), realFetch = globalThis.fetch;
           globalThis.fetch = async (input, init = {}) => {
             const url = typeof input === 'string' ? input : input?.url || String(input);
             if (!url.includes('/api/edit/transcribe')) return realFetch(input, init);
@@ -74,10 +71,10 @@ jobs:
             const tmp = `/tmp/unmindfy-whisperx-${Date.now()}.wav`;
             try {
               await writeFile(tmp, Buffer.from(await ar.arrayBuffer()));
-              const { stdout } = await execFileP(PYTHON, ['scripts/whisperx-word-timings.py', tmp, body.script], { maxBuffer: 8 * 1024 * 1024 });
+              const { stdout } = await execFileP('/tmp/whisperx/bin/python', ['scripts/whisperx-word-timings.py', tmp, body.script], { maxBuffer: 8 * 1024 * 1024 });
               const raw = stdout.trim(), first = raw.indexOf('['), last = raw.lastIndexOf(']');
               const words = JSON.parse(raw.slice(first, last + 1));
-              return new Response(JSON.stringify({ ok: true, model: 'whisperx-base+w2v2', words, timing_source: 'whisperx_forced_alignment' }), { status: 200, headers: { 'content-type': 'application/json' } });
+              return new Response(JSON.stringify({ ok: true, model: 'whisperx-base+forced-alignment', words, timing_source: 'whisperx_forced_alignment' }), { status: 200, headers: { 'content-type': 'application/json' } });
             } finally { await unlink(tmp).catch(() => {}); }
           };
           EOF
@@ -89,7 +86,7 @@ jobs:
           rm -rf .render-work
           node --import=/tmp/word-timing-bridge.mjs scripts/render-reel.mjs
           test -s .render-work/output.mp4
-          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,codec_name,pix_fmt,profile,level,avg_frame_rate -of default=noprint_wrappers=1 .render-work/output.mp4
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,codec_name,pix_fmt,profile,level,avg_frame_rate,bit_rate -of default=noprint_wrappers=1 .render-work/output.mp4
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of default=noprint_wrappers=1 .render-work/output.mp4
       - name: Upload verified render to Dropbox
         env:
