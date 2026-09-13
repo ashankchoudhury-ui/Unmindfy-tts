@@ -2,9 +2,6 @@
 name: UNMINDY TTS Queue
 
 on:
-  push:
-    paths:
-      - '.github/workflows/tts-queue.yml'
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
