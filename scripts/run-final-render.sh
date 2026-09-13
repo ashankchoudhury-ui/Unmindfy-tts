@@ -23,12 +23,13 @@ old_pages="""function captionPages(words) {
   return pages;
 }"""
 new_pages="""function captionPages(words) {
-  const MAX_LINES = 3, TARGET = 11, MIN = 9, MAX = 12, pages = [];
+  const MAX_LINES = 4, TARGET = 10, MIN = 8, MAX = 12, pages = [];
   let page = [], i = 0;
   while (i < words.length) {
     const candidate = [...page, words[i]], overflow = layoutWords(candidate).length > MAX_LINES;
     if (page.length && overflow) { pages.push(page); page = []; continue; }
     if (page.length && page.length >= MAX) { pages.push(page); page = []; continue; }
+    if (page.length && page.length >= TARGET && overflow) { pages.push(page); page = []; continue; }
     page = candidate; i++;
   }
   if (page.length) pages.push(page);
@@ -44,8 +45,10 @@ reps=[
 ("const OUTPUT_WIDTH = 1920;","const OUTPUT_WIDTH = 1280;"),
 ("const OUTPUT_HEIGHT = 1080;","const OUTPUT_HEIGHT = 720;"),
 ("const MAX = 22, lines = [];","const MAX = 13, lines = [];"),
-("const FONT = 56, BOX_W = 780, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 96;","const FONT = 56, BOX_W = 600, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 145;"),
+("const FONT = 56, BOX_W = 780, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 96;","const FONT = 52, BOX_W = 520, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 165;"),
 (old_pages,new_pages),
+("    'Style: Ref,Courier,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,1,0,0,0,100,100,0,0,1,3.2,2.4,7,0,0,0,1'","    'Style: Ref,Courier,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.8,1.2,7,0,0,0,1'"),
+("'-vf', `${resize},subtitles='${assPath}':original_size=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}`,","'-vf', `${resize},eq=contrast=1.06:brightness=-0.015:saturation=0.90:gamma=0.98,subtitles='${assPath}':original_size=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}`,"),
 ("    if (!music) throw new Error('No music file found in UNMINDY/Music');","    if (!music) console.log('No music found; using generated ambient bed as fallback.');"),
 ("    console.log(`Music: ${music.name}`);","    console.log(`Music: ${music?.name || 'generated ambient bed'}`);"),
 ("    const musicPath = path.join(WORK, `music${path.extname(music.name) || '.mp3'}`);","    const musicPath = path.join(WORK, `music${path.extname(music?.name || 'ambient.m4a') || '.m4a'}`);"),
@@ -72,3 +75,4 @@ PY
 sleep 30
 node scripts/render-reel.mjs
 # fresh local forced-alignment trigger marker
+# reference typography + subtle grade pass
