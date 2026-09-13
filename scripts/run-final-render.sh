@@ -33,12 +33,12 @@ if n != 1: raise SystemExit('captionPages patch target missing')
 
 s = re.sub(
     r'const FONT = \d+, BOX_W = \d+, SAFE_X = \(OUTPUT_WIDTH - BOX_W\) / 2, CAPTION_Y = \d+;',
-    'const FONT = 56, BOX_W = 560, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 165;',
+    'const FONT = 54, BOX_W = 560, SAFE_X = (OUTPUT_WIDTH - BOX_W) / 2, CAPTION_Y = 165;',
     s, count=1)
 
 s = re.sub(
     r"'Style: Ref,Courier,\$\{FONT\},[^']*'",
-    "'Style: Ref,Courier,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.2,0.8,7,0,0,0,1'",
+    "'Style: Ref,Nimbus Mono PS,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,0.8,0.45,7,0,0,0,1'",
     s, count=1)
 
 static_reveal = '''function revealCaption(page, startIndex, timings, eventStart) {
