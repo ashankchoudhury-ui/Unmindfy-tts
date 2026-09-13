@@ -31,11 +31,9 @@ async function claim(record, staleBeforeMs) {
   return rows?.[0] || null;
 }
 export default async function handler(req, res) {
+  const cronSecret = env('CRON_SECRET');
   const manual = req.method === 'GET' && req.query?.run === MANUAL_TRIGGER_TOKEN;
-  if (!manual) {
-    const cronSecret = env('CRON_SECRET');
-    if (req.headers.authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-  }
+  if (!manual && req.headers.authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ ok: false, error: 'Unauthorized' });
   if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'GET only' });
   try {
     const staleBeforeMs = Date.now() - TTS_STALE_MINUTES * 60 * 1000;
