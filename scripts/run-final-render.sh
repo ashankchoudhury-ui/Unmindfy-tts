@@ -41,12 +41,11 @@ s = re.sub(
     "'Style: Ref,Courier,${FONT},&H00FFFFFF,&H00FFFFFF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1.2,0.8,7,0,0,0,1'",
     s, count=1)
 
-# Reference style uses a clean, static white caption with a restrained dark edge.
 static_reveal = '''function revealCaption(page, startIndex, timings, eventStart) {
   const lines = layoutWords(page).map(line => line.map(assEscape).join(' '));
   return { text: lines.join('\\N'), nextIndex: startIndex + page.length };
 }'''
-s, n = re.subn(r'function revealCaption\(page, startIndex, timings, eventStart\) \{.*?\n\}', static_reveal, s, count=1, flags=re.S)
+s, n = re.subn(r'function revealCaption\(page, startIndex, timings, eventStart\) \{.*?\n\}', lambda m: static_reveal, s, count=1, flags=re.S)
 if n != 1: raise SystemExit('revealCaption patch target missing')
 
 s = s.replace(
@@ -70,11 +69,10 @@ forced = '''async function wordTimings(script, audioUrl) {
   const words = wordsOf(script);
   return validateTimings(d.words.map((w, i) => ({ text: words[i], start: Number(w.start), end: Number(w.end), i })), script);
 }'''
-s, n = re.subn(r'async function wordTimings\(script, audioUrl\) \{.*?\n\}', forced, s, count=1, flags=re.S)
+s, n = re.subn(r'async function wordTimings\(script, audioUrl\) \{.*?\n\}', lambda m: forced, s, count=1, flags=re.S)
 if n != 1: raise SystemExit('wordTimings patch target missing')
 
 p.write_text(s)
 PY
 sleep 30
 node scripts/render-reel.mjs
-# reference screenshot: static centered Courier-style text + subtle muted grade
