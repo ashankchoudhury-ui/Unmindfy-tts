@@ -46,7 +46,9 @@ async function claim(record, staleBeforeMs) {
   const nextAttempts = attempts + 1;
   const now = new Date().toISOString();
   let predicate = `tts_status=eq.${encodeURIComponent(record.tts_status)}`;
-  if (record.tts_status === 'Not Generated' || record.tts_status === 'Error') {
+  if (record.id === ONE_TIME_REGEN_ID && record.tts_status === 'Ready') {
+    predicate += `&tts_attempts=eq.${attempts}`;
+  } else if (record.tts_status === 'Not Generated' || record.tts_status === 'Error') {
     predicate += `&tts_attempts=eq.${attempts}`;
   } else {
     predicate += `&tts_started_at=lt.${encodeURIComponent(new Date(staleBeforeMs).toISOString())}`;
