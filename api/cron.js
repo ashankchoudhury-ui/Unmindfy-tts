@@ -2,6 +2,7 @@ const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const TTS_MAX_ATTEMPTS = 3;
 const TTS_STALE_MINUTES = 20;
 const TTS_ENDPOINT = 'https://unmindfy-tts.vercel.app/api/tts';
+const ONE_TIME_REGEN_ID = '78fbca42-df48-43c7-8abb-671e94c7a6e3';
 
 function env(name) {
   const value = process.env[name];
@@ -72,7 +73,10 @@ export default async function handler(req, res) {
       'content_pipeline?select=id,script,tts_status,tts_audio_url,tts_attempts,tts_started_at,updated_at,created_at&order=created_at.asc&limit=25'
     );
 
-    const candidates = (data || []).filter(record => eligible(record, staleBeforeMs)).slice(0, 3);
+    const candidates = (data || []).filter(record => {
+      const oneTimeRegen = record.id === ONE_TIME_REGEN_ID && Number(record.tts_attempts || 0) === 1 && record.tts_status === 'Ready';
+      return eligible(record, staleBeforeMs) || oneTimeRegen;
+    }).slice(0, 3);
     const results = [];
 
     for (const candidate of candidates) {
@@ -83,10 +87,11 @@ export default async function handler(req, res) {
       }
 
       try {
+        const force = candidate.id === ONE_TIME_REGEN_ID;
         const tts = await fetch(TTS_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cronSecret}` },
-          body: JSON.stringify({ recordId: candidate.id })
+          body: JSON.stringify({ recordId: candidate.id, force })
         });
         const body = await tts.json().catch(() => ({}));
         results.push({ recordId: candidate.id, status: tts.status, body });
