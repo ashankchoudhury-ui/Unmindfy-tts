@@ -94,7 +94,7 @@ ${transcript}`;
     if (!part) throw new Error('No audio returned by Gemini');
     let pcm = Buffer.from(part.inlineData.data, 'base64');
 
-    const speedFactor = recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 2.25 : 1.5;
+    const speedFactor = recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 1.08 : 1.5;
     pcm = speedUpPcm16(pcm, speedFactor);
     const wav = pcmToWav(pcm, 24000, 1, 16);
 
