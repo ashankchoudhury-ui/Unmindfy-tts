@@ -32,6 +32,7 @@ async function supabaseRequest(path, options = {}) {
 function eligible(record, staleBeforeMs) {
   const attempts = Number(record.tts_attempts || 0);
   if (!record.script || typeof record.script !== 'string' || !record.script.trim()) return false;
+  if (record.id === ONE_TIME_REGEN_ID && record.tts_status === 'Ready' && attempts === 5) return true;
   if (record.tts_status === 'Not Generated') return true;
   if (record.tts_status === 'Error') return attempts < TTS_MAX_ATTEMPTS;
   if (record.tts_status === 'Generating') {
@@ -76,10 +77,7 @@ export default async function handler(req, res) {
       'content_pipeline?select=id,script,tts_status,tts_audio_url,tts_attempts,tts_started_at,updated_at,created_at&order=created_at.asc&limit=25'
     );
 
-    const candidates = (data || []).filter(record => {
-      const oneTimeRegen = record.id === ONE_TIME_REGEN_ID && Number(record.tts_attempts || 0) === 1 && record.tts_status === 'Ready';
-      return eligible(record, staleBeforeMs) || oneTimeRegen;
-    }).slice(0, 3);
+    const candidates = (data || []).filter(record => eligible(record, staleBeforeMs)).slice(0, 3);
     const results = [];
 
     for (const candidate of candidates) {
