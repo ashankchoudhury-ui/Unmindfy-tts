@@ -1,19 +1,119 @@
-// UNMINDY TTS production worker — Deadpan voice direction.
-const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
-const MODEL = 'gemini-3.1-flash-tts-preview';
-const MAX_SCRIPT_CHARS = 12000;
-const TTS_BUCKET = 'tts-audio';
-function env(name) { const value = process.env[name]; if (!value) throw new Error(`Missing environment variable: ${name}`); return value; }
-function supabaseKey() { const value = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY; if (!value) throw new Error('Missing SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY'); return value; }
-function json(res, status, body) { return res.status(status).json(body); }
-async function supabaseRequest(path, options = {}) { const key = supabaseKey(); const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...options, headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(options.headers || {}) } }); const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { throw new Error(`Supabase returned invalid JSON: ${text}`); } if (!response.ok) throw new Error(`Supabase ${response.status}: ${text}`); return data; }
-async function uploadAudio(path, wav) { const key = supabaseKey(); const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${TTS_BUCKET}/${path}`, { method: 'POST', headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'audio/wav', 'x-upsert': 'true' }, body: wav }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(`Supabase Storage ${response.status}: ${JSON.stringify(data)}`); return `${SUPABASE_URL}/storage/v1/object/public/${TTS_BUCKET}/${path}`; }
-async function getRecord(recordId) { const rows = await supabaseRequest(`content_pipeline?id=eq.${encodeURIComponent(recordId)}&select=id,script,tts_status,tts_audio_url&limit=1`); return rows[0] || null; }
-async function updateRecord(recordId, fields) { await supabaseRequest(`content_pipeline?id=eq.${encodeURIComponent(recordId)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() }) }); }
-function base64ToBytes(base64) { return Uint8Array.from(Buffer.from(base64, 'base64')); }
-function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) { const dataLength = pcm.byteLength; const buffer = Buffer.alloc(44 + dataLength); buffer.write('RIFF', 0); buffer.writeUInt32LE(36 + dataLength, 4); buffer.write('WAVE', 8); buffer.write('fmt ', 12); buffer.writeUInt32LE(16, 16); buffer.writeUInt16LE(1, 20); buffer.writeUInt16LE(channels, 22); buffer.writeUInt32LE(sampleRate, 24); buffer.writeUInt32LE(sampleRate * channels * bitsPerSample / 8, 28); buffer.writeUInt16LE(channels * bitsPerSample / 8, 32); buffer.writeUInt16LE(bitsPerSample, 34); buffer.write('data', 36); buffer.writeUInt32LE(dataLength, 40); Buffer.from(pcm).copy(buffer, 44); return buffer; }
-function normalizeTranscript(script) { return script.replace(/\s*\n\s*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim(); }
-function getVoicePrompt(script) { return `Speak this transcript in a DRY DEADPAN style, with a tight, natural conversational pace suitable for a short social-media reel.\n\nPERFORMANCE: The narrator is calm, restrained, matter-of-fact, and subtly dry. Keep pitch movement small and controlled. Keep emotional intensity low. Sound mildly amused and observant, not excited. Do not sound like a presenter, announcer, advertisement, motivational speaker, audiobook narrator, or dramatic storyteller. Do not perform the lines theatrically. Do not add hype, enthusiasm, vocal smiling, exaggerated emphasis, or dramatic pauses. Let the words carry the interest. Use a brisk but comfortable human speaking pace. Avoid lingering between sentences; keep pauses very short and organic unless the transcript uses an ellipsis to indicate a thought turn. Do not artificially stretch words or silence.\n\nVOICE: Young adult male, Algieba. Smooth, grounded, intimate, casual, and believable. The voice should feel like one person casually telling a friend an interesting realization. Keep the same restrained deadpan character from the first word to the last.\n\nIMPORTANT: Synthesize ONLY the text inside TRANSCRIPT. Everything before TRANSCRIPT is performance direction and must NOT be spoken.\n\nTRANSCRIPT:\n${script}`; }
-function extractGeminiAudio(interaction) { if (interaction?.output_audio?.data) return { data: interaction.output_audio.data, sampleRate: interaction.output_audio.sample_rate || 24000, channels: interaction.output_audio.channels || 1, mimeType: interaction.output_audio.mime_type || 'audio/l16' }; const steps = Array.isArray(interaction?.steps) ? interaction.steps : []; for (let i = steps.length - 1; i >= 0; i -= 1) { const content = Array.isArray(steps[i]?.content) ? steps[i].content : []; for (let j = content.length - 1; j >= 0; j -= 1) { const item = content[j]; if (item?.type === 'audio' && item?.data) return { data: item.data, sampleRate: item.sample_rate || 24000, channels: item.channels || 1, mimeType: item.mime_type || 'audio/l16' }; } } return null; }
-export default async function handler(req, res) { if (req.method === 'GET') return json(res, 200, { ok: true, service: 'unmindy-tts', model: MODEL, storage: 'supabase' }); if (req.method !== 'POST') return json(res, 405, { error: 'POST only' }); const cronSecret = env('CRON_SECRET'); if (req.headers.authorization !== `Bearer ${cronSecret}`) return json(res, 401, { ok: false, error: 'Unauthorized' }); let recordId; try { recordId = req.body?.recordId; if (!recordId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(recordId)) return json(res, 400, { error: 'A valid Supabase UUID recordId is required' }); const record = await getRecord(recordId); if (!record) return json(res, 404, { ok: false, error: 'Content pipeline record not found' }); if (record.tts_status === 'Ready' && record.tts_audio_url) return json(res, 200, { ok: true, recordId, audioUrl: record.tts_audio_url, model: MODEL, alreadyReady: true }); const cleanScript = normalizeTranscript(String(record.script || '')); if (!cleanScript) throw new Error('Supabase script field is empty'); if (cleanScript.length > MAX_SCRIPT_CHARS) throw new Error(`Script is too long; maximum is ${MAX_SCRIPT_CHARS} characters`); await updateRecord(recordId, { tts_status: 'Generating' }); const geminiResponse = await fetch(GEMINI_URL, { method: 'POST', headers: { 'x-goog-api-key': env('GEMINI_API_KEY'), 'Content-Type': 'application/json', 'Api-Revision': '2026-05-20' }, body: JSON.stringify({ model: MODEL, input: getVoicePrompt(cleanScript), response_format: { type: 'audio' }, generation_config: { speech_config: [{ voice: 'Algieba' }] } }) }); const gemini = await geminiResponse.json().catch(() => ({})); if (!geminiResponse.ok) throw new Error(`Gemini ${geminiResponse.status}: ${JSON.stringify(gemini)}`); const audio = extractGeminiAudio(gemini); if (!audio?.data) { const stepTypes = Array.isArray(gemini?.steps) ? gemini.steps.map(step => step?.type).filter(Boolean) : []; throw new Error(`Gemini returned no audio data (steps: ${stepTypes.join(',') || 'none'})`); } const pcm = base64ToBytes(audio.data); const wav = pcmToWav(pcm, audio.sampleRate, audio.channels); const audioPath = `tts/${recordId}.wav`; const audioUrl = await uploadAudio(audioPath, wav); await updateRecord(recordId, { tts_audio_url: audioUrl, tts_status: 'Ready', tts_started_at: null }); return json(res, 200, { ok: true, recordId, audioUrl, model: MODEL }); } catch (error) { if (recordId) { try { await updateRecord(recordId, { tts_status: 'Error', tts_started_at: null }); } catch {} } console.error('UNMINDY TTS error:', error); return json(res, 500, { ok: false, error: error instanceof Error ? error.message : 'TTS generation failed' }); } }
+// UNMINDY TTS worker
+// Generates Gemini TTS audio, converts PCM to WAV, and stores it in Supabase.
+
+const { GoogleGenAI } = require('@google/genai');
+const { createClient } = require('@supabase/supabase-js');
+
+function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
+  const byteRate = sampleRate * channels * bitsPerSample / 8;
+  const blockAlign = channels * bitsPerSample / 8;
+  const buffer = Buffer.alloc(44 + pcm.length);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + pcm.length, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(channels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(pcm.length, 40);
+  pcm.copy(buffer, 44);
+  return buffer;
+}
+
+function speedUpPcm16(pcm, factor) {
+  if (!Number.isFinite(factor) || factor <= 1) return pcm;
+  const samples = Math.floor(pcm.length / 2);
+  const outSamples = Math.max(1, Math.floor(samples / factor));
+  const out = Buffer.allocUnsafe(outSamples * 2);
+  for (let i = 0; i < outSamples; i++) {
+    const src = Math.min(samples - 1, Math.floor(i * factor));
+    out.writeInt16LE(pcm.readInt16LE(src * 2), i * 2);
+  }
+  return out;
+}
+
+module.exports = async function handler(req, res) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { recordId, force } = req.body || {};
+    if (!recordId) return res.status(400).json({ error: 'recordId is required' });
+
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const { data: record, error: fetchError } = await supabase
+      .from('content_pipeline')
+      .select('*')
+      .eq('id', recordId)
+      .single();
+    if (fetchError || !record) return res.status(404).json({ error: 'Record not found' });
+
+    if (!force && record.tts_status === 'Ready' && record.tts_audio_url) {
+      return res.status(200).json({ ok: true, status: 'Ready', url: record.tts_audio_url });
+    }
+
+    await supabase.from('content_pipeline').update({
+      tts_status: 'Generating',
+      tts_attempts: (record.tts_attempts || 0) + 1,
+      tts_started_at: new Date().toISOString()
+    }).eq('id', recordId);
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const transcript = record.tts_script || record.script || '';
+    if (!transcript.trim()) throw new Error('No TTS script found');
+
+    const prompt = `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm, but this is a short social-media reel: speak at a brisk, comfortable pace and target the entire script to finish in roughly 34-36 seconds. Keep sentence gaps very short and organic. Do not linger, stretch words, or add dramatic pauses. Ellipses in the script indicate only tiny hesitations. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words.
+
+Performance direction: Start extremely natural and casual. Slightly emphasize contrasts and questions, especially “then you hate it because of the ending,” “ten bad minutes,” and “the whole movie.” “But why?” should be very short and genuinely curious. Keep the explanation matter-of-fact. End with restrained weight on “But the movie in your head did,” as a quiet realization, not a dramatic quote.
+
+SCRIPT:
+${transcript}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-tts-preview',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Algieba' } } }
+      }
+    });
+
+    const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
+    if (!part) throw new Error('No audio returned by Gemini');
+    let pcm = Buffer.from(part.inlineData.data, 'base64');
+
+    // User requires a hard maximum of 40s. Apply an exact 1.5x time compression
+    // after generation while keeping the WAV container at 24 kHz mono 16-bit PCM.
+    pcm = speedUpPcm16(pcm, 1.5);
+    const wav = pcmToWav(pcm, 24000, 1, 16);
+
+    const path = `tts/${recordId}.wav`;
+    const { error: uploadError } = await supabase.storage.from('tts-audio').upload(path, wav, {
+      contentType: 'audio/wav',
+      upsert: true
+    });
+    if (uploadError) throw uploadError;
+
+    const { data: publicData } = supabase.storage.from('tts-audio').getPublicUrl(path);
+    const url = publicData.publicUrl;
+
+    const { error: updateError } = await supabase.from('content_pipeline').update({
+      tts_status: 'Ready',
+      tts_audio_url: url,
+      updated_at: new Date().toISOString()
+    }).eq('id', recordId);
+    if (updateError) throw updateError;
+
+    return res.status(200).json({ ok: true, status: 'Ready', url });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: error.message || String(error) });
+  }
+};
