@@ -69,7 +69,7 @@ module.exports = async function handler(req, res) {
     const transcript = record.tts_script || record.script || '';
     if (!transcript.trim()) throw new Error('No TTS script found');
 
-    const prompt = `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm, but this is a short social-media reel: speak at a brisk, comfortable pace and target the entire script to finish in roughly 34-36 seconds. Keep sentence gaps very short and organic. Do not linger, stretch words, or add dramatic pauses. Ellipses in the script indicate only tiny hesitations. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words.
+    const prompt = `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm, but this is a short social-media reel: speak at a brisk, comfortable pace. Keep sentence gaps very short and organic. Do not linger, stretch words, or add dramatic pauses. Ellipses in the script indicate only tiny hesitations. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words.
 
 Performance direction: Start extremely natural and casual. Slightly emphasize contrasts and questions, especially “then you hate it because of the ending,” “ten bad minutes,” and “the whole movie.” “But why?” should be very short and genuinely curious. Keep the explanation matter-of-fact. End with restrained weight on “But the movie in your head did,” as a quiet realization, not a dramatic quote.
 
@@ -89,9 +89,10 @@ ${transcript}`;
     if (!part) throw new Error('No audio returned by Gemini');
     let pcm = Buffer.from(part.inlineData.data, 'base64');
 
-    // User requires a hard maximum of 40s. Apply an exact 1.5x time compression
-    // after generation while keeping the WAV container at 24 kHz mono 16-bit PCM.
-    pcm = speedUpPcm16(pcm, 1.5);
+    // This one-time Reel #3 regeneration must turn the previous ~51s result into
+    // the requested ~34s result. Normal jobs keep the existing 1.5x compression.
+    const speedFactor = recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 2.25 : 1.5;
+    pcm = speedUpPcm16(pcm, speedFactor);
     const wav = pcmToWav(pcm, 24000, 1, 16);
 
     const path = `tts/${recordId}.wav`;
