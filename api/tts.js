@@ -1,8 +1,8 @@
 // UNMINDY TTS worker
 // Generates Gemini TTS audio, converts PCM to WAV, and stores it in Supabase.
 
-const { GoogleGenAI } = require('@google/genai');
-const { createClient } = require('@supabase/supabase-js');
+import { GoogleGenAI } from '@google/genai';
+import { createClient } from '@supabase/supabase-js';
 
 function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   const byteRate = sampleRate * channels * bitsPerSample / 8;
@@ -37,7 +37,7 @@ function speedUpPcm16(pcm, factor) {
   return out;
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -89,8 +89,6 @@ ${transcript}`;
     if (!part) throw new Error('No audio returned by Gemini');
     let pcm = Buffer.from(part.inlineData.data, 'base64');
 
-    // This one-time Reel #3 regeneration must turn the previous ~51s result into
-    // the requested ~34s result. Normal jobs keep the existing 1.5x compression.
     const speedFactor = recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 2.25 : 1.5;
     pcm = speedUpPcm16(pcm, speedFactor);
     const wav = pcmToWav(pcm, 24000, 1, 16);
@@ -114,7 +112,7 @@ ${transcript}`;
 
     return res.status(200).json({ ok: true, status: 'Ready', url });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: error.message || String(error) });
+    console.error('UNMINDY TTS worker error:', error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
-};
+}
