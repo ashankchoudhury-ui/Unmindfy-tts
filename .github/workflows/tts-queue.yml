@@ -26,3 +26,5 @@ jobs:
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
+
+# trigger regeneration after the worker deployment is live
