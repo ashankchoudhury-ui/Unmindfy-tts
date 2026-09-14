@@ -1,4 +1,4 @@
-# UNMINDY TTS queue: poll for new content, then hand off to the video queue.
+# UNMINDY TTS queue
 name: UNMINDY TTS Queue
 
 on:
@@ -22,9 +22,9 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CRON_SECRET}" || { echo "UNMINDY_CRON_SECRET is missing"; exit 1; }
+          # Give the Vercel production deployment triggered by the same push time to become ready.
+          sleep 60
           response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X GET \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
-
-# trigger regeneration after the worker deployment is live
