@@ -4,6 +4,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 
+const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
+
 function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   const byteRate = sampleRate * channels * bitsPerSample / 8;
   const blockAlign = channels * bitsPerSample / 8;
@@ -47,7 +49,10 @@ export default async function handler(req, res) {
     const { recordId, force } = req.body || {};
     if (!recordId) return res.status(400).json({ error: 'recordId is required' });
 
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+    if (!supabaseKey) throw new Error('Missing Supabase service key');
+    const supabase = createClient(SUPABASE_URL, supabaseKey);
+
     const { data: record, error: fetchError } = await supabase
       .from('content_pipeline')
       .select('*')
