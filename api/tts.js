@@ -28,18 +28,6 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   return buffer;
 }
 
-function speedUpPcm16(pcm, factor) {
-  if (!Number.isFinite(factor) || factor <= 1) return pcm;
-  const samples = Math.floor(pcm.length / 2);
-  const outSamples = Math.max(1, Math.floor(samples / factor));
-  const out = Buffer.allocUnsafe(outSamples * 2);
-  for (let i = 0; i < outSamples; i++) {
-    const src = Math.min(samples - 1, Math.floor(i * factor));
-    out.writeInt16LE(pcm.readInt16LE(src * 2), i * 2);
-  }
-  return out;
-}
-
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -76,8 +64,99 @@ export default async function handler(req, res) {
     if (!transcript.trim()) throw new Error('No TTS script found');
 
     const prompt = recordId === REEL_6_ID
-      ? `Read the following UNMINDY reel script exactly as written using voice Algieba. The voice should sound naturally deep, calm, conversational, intelligent, slightly dry, subtly expressive, mildly curious, understated, human and believable. Imagine someone casually sharing a thought with a friend late at night. Delivery: 55% deadpan / 45% natural expression. Start naturally and confidently, as if the first sentence is a genuine thought you've been sitting with. The first two lines should feel intimate and immediately interesting, not exaggerated. Gradually become more reflective as the thought develops. Naturally emphasize these phrases: “don't miss people”, “who we were”, “wouldn't even want back”, “how life felt”, “moving on”, “letting go”, and “version of yourself”. Give “That's why moving on feels so strange.” a slightly more thoughtful pause before continuing. The final section should become quieter and more emotionally meaningful, but never dramatic. “And that's the part you actually miss.” should feel like a quiet realization rather than a performed quote. Use natural pauses and breathing. Do not rush or over-pause between every line. Keep the overall delivery conversational and fluid. Do not sound like an AI, narrator, motivational speaker, documentary presenter, teacher, trailer voice, announcer, advertisement, audiobook, dramatic storyteller, emotionless AI, or psychology teacher. Do not add, remove, rewrite, paraphrase, or improvise any words. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`
-      : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm, but this is a short social-media reel: speak at a brisk, comfortable pace. Keep sentence gaps very short and organic. Do not linger, stretch words, or add dramatic pauses. Ellipses in the script indicate only tiny hesitations. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words.\n\nPerformance direction: Start extremely natural and casual. Slightly emphasize contrasts and questions, especially “then you hate it because of the ending,” “ten bad minutes,” and “the whole movie.” “But why?” should be very short and genuinely curious. Keep the explanation matter-of-fact. End with restrained weight on “But the movie in your head did,” as a quiet realization, not a dramatic quote.\n\nSCRIPT:\n${transcript}`;
+      ? `UNMINDY — MASTER TTS GENERATION PROMPT
+
+Generate ONLY the TTS audio for the exact script provided below.
+
+VOICE:
+Use Gemini TTS voice: Algieba.
+
+The voice should sound:
+- Naturally deep
+- Calm
+- Conversational
+- Intelligent
+- Slightly dry
+- Subtly expressive
+- Mildly curious
+- Understated
+- Human and believable
+
+DELIVERY:
+Imagine someone casually explaining a thought to a close friend late at night.
+
+Do NOT sound like:
+- An AI voice
+- A narrator
+- A documentary voice
+- A motivational speaker
+- A news presenter
+- A trailer voice
+- A teacher reading a script
+
+The delivery should be approximately:
+55% deadpan / 45% natural expression.
+
+Use natural pitch movement and subtle changes in emphasis.
+
+Do not make every sentence dramatic.
+
+Let emotional moments become slightly quieter or more deliberate instead of louder.
+
+PACING:
+
+Speak naturally and clearly.
+
+Do not rush.
+
+Do not drag sentences unnaturally.
+
+Use short pauses between separate thoughts.
+
+Use slightly longer pauses where the script contains:
+"..."
+or an intentional line break.
+
+Pauses should feel like genuine thinking, not robotic timing.
+
+EMPHASIS:
+
+Naturally emphasize important words and phrases, but keep it subtle.
+
+The opening should immediately feel interesting and conversational.
+
+As the thought develops, gradually increase emotional involvement.
+
+The final lines should feel like a genuine realization.
+
+Do NOT turn the ending into a dramatic quote.
+
+Keep the voice controlled and understated.
+
+SCRIPT:
+
+${transcript}
+
+IMPORTANT:
+
+Read the script EXACTLY as written.
+
+Do not add, remove, rewrite, paraphrase, or improvise any words.
+
+Do not add an introduction or outro.
+
+Do not say the title.
+
+Do not explain anything.
+
+Generate only the spoken TTS audio.
+
+TARGET:
+
+Natural short-form narration for UNMINDY.
+
+The finished audio should feel like a real person having a quiet, thoughtful conversation — not someone performing a script.`
+      : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
@@ -90,21 +169,19 @@ export default async function handler(req, res) {
 
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
     if (!part) throw new Error('No audio returned by Gemini');
-    let pcm = Buffer.from(part.inlineData.data, 'base64');
-
-    const speedFactor = recordId === REEL_6_ID ? 1.25 : (recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 1.08 : 1.5);
-    pcm = speedUpPcm16(pcm, speedFactor);
+    const pcm = Buffer.from(part.inlineData.data, 'base64');
     const wav = pcmToWav(pcm, 24000, 1, 16);
 
     const path = `tts/${recordId}.wav`;
     const { error: uploadError } = await supabase.storage.from('tts-audio').upload(path, wav, {
       contentType: 'audio/wav',
-      upsert: true
+      upsert: true,
+      cacheControl: '0'
     });
     if (uploadError) throw uploadError;
 
     const { data: publicData } = supabase.storage.from('tts-audio').getPublicUrl(path);
-    const url = publicData.publicUrl;
+    const url = `${publicData.publicUrl}?v=${Date.now()}`;
 
     const { error: updateError } = await supabase.from('content_pipeline').update({
       tts_status: 'Ready',
