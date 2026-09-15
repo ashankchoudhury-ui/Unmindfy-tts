@@ -22,6 +22,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CRON_SECRET}" || { echo "UNMINDY_CRON_SECRET is missing"; exit 1; }
+          # Trigger queue for pending UNMINDY TTS jobs.
           # Give the Vercel production deployment triggered by the same push time to become ready.
           sleep 60
           response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X GET \
