@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const REEL_6_ID = 'f7e3ecfb-8919-4da7-8d5e-09fc50f312ed';
 const REEL_7_OPENING = "It's weird when something you used to love suddenly feels boring.";
+const REEL_9_OPENING = 'A song is beautiful because it ends.';
 
 function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   const byteRate = sampleRate * channels * bitsPerSample / 8;
@@ -67,8 +68,9 @@ export default async function handler(req, res) {
 
     const isReel6 = recordId === REEL_6_ID;
     const isReel7 = record.reel === 'Reel #7' || record.reel_name === 'Reel #7' || record.title === 'Reel #7' || transcript.trimStart().startsWith(REEL_7_OPENING);
+    const isReel9 = record.reel === 'Reel #9' || record.reel_name === 'Reel #9' || record.title === 'Reel #9' || transcript.trimStart().startsWith(REEL_9_OPENING);
 
-    if (!force && record.tts_status === 'Ready' && record.tts_audio_url && !isReel7) {
+    if (!force && record.tts_status === 'Ready' && record.tts_audio_url && !isReel7 && !isReel9) {
       return res.status(200).json({ ok: true, status: 'Ready', url: record.tts_audio_url });
     }
 
@@ -79,6 +81,64 @@ export default async function handler(req, res) {
     }).eq('id', recordId);
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const reel9Prompt = `MASTER PROMPT — UNMINDY TTS AUDIO GENERATION
+
+Generate ONLY TTS AUDIO for UNMINDY Reel #9.
+
+VOICE IDENTITY
+Voice: Algieba
+
+Target voice:
+naturally deep
+calm
+conversational
+intelligent
+slightly dry
+subtly expressive
+curious and thoughtful
+understated
+human
+
+Aim for roughly 45% dry/deadpan + 55% natural expression.
+
+Do NOT make it sound motivational, cinematic, dramatic, like a documentary, audiobook, psychology explainer, AI assistant, or speech.
+
+DELIVERY
+Speak naturally, like you're telling one interesting thought to a friend.
+The emotion should come from the meaning of the words, not exaggerated acting.
+
+Use small natural changes in emphasis, slight curiosity where appropriate, subtle pauses at line breaks, natural conversational rhythm, and slight emphasis on important turns.
+
+Avoid long dramatic pauses, over-pronouncing words, artificially deepening the voice, excessive emotion, every sentence sounding equally important, robotic pacing, or reading each line like a separate statement.
+
+The line:
+“The song wouldn't change. You would.”
+should have a subtle emphasis and contrast between “wouldn't change” and “You would.”
+
+The final:
+“That’s why endings matter.”
+should feel like a quiet realization—not a dramatic conclusion.
+
+PACING
+Target total duration: 20–28 seconds.
+Keep the pacing natural and conversational.
+Do not rush just to hit the duration.
+Do not stretch the script with unnecessary pauses.
+
+SCRIPT — READ EXACTLY
+
+${transcript}
+
+IMPORTANT
+Do not change any words.
+Do not add words.
+Do not remove words.
+Do not paraphrase.
+Do not add an intro or outro.
+Do not say the title.
+Do not explain anything.
+Generate audio only.`;
 
     const reel7Prompt = `UNMINDY — REEL #7 TTS GENERATION PROMPT
 
@@ -267,7 +327,7 @@ Natural short-form narration for UNMINDY.
 
 The finished audio should feel like a real person having a quiet, thoughtful conversation — not someone performing a script.`;
 
-    const prompt = isReel7 ? reel7Prompt : isReel6 ? reel6Prompt : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
+    const prompt = isReel9 ? reel9Prompt : isReel7 ? reel7Prompt : isReel6 ? reel6Prompt : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
