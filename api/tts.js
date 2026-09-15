@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
 const REEL_6_ID = 'f7e3ecfb-8919-4da7-8d5e-09fc50f312ed';
+const REEL_7_OPENING = "It's weird when something you used to love suddenly feels boring.";
 
 function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   const byteRate = sampleRate * channels * bitsPerSample / 8;
@@ -61,8 +62,11 @@ export default async function handler(req, res) {
       .single();
     if (fetchError || !record) return res.status(404).json({ error: 'Record not found' });
 
+    const transcript = record.tts_script || record.script || '';
+    if (!transcript.trim()) throw new Error('No TTS script found');
+
     const isReel6 = recordId === REEL_6_ID;
-    const isReel7 = record.reel === 'Reel #7' || record.reel_name === 'Reel #7' || record.title === 'Reel #7';
+    const isReel7 = record.reel === 'Reel #7' || record.reel_name === 'Reel #7' || record.title === 'Reel #7' || transcript.trimStart().startsWith(REEL_7_OPENING);
 
     if (!force && record.tts_status === 'Ready' && record.tts_audio_url && !isReel7) {
       return res.status(200).json({ ok: true, status: 'Ready', url: record.tts_audio_url });
@@ -75,8 +79,6 @@ export default async function handler(req, res) {
     }).eq('id', recordId);
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const transcript = record.tts_script || record.script || '';
-    if (!transcript.trim()) throw new Error('No TTS script found');
 
     const reel7Prompt = `UNMINDY — REEL #7 TTS GENERATION PROMPT
 
@@ -280,8 +282,6 @@ The finished audio should feel like a real person having a quiet, thoughtful con
     if (!part) throw new Error('No audio returned by Gemini');
     let pcm = Buffer.from(part.inlineData.data, 'base64');
 
-    // Only Reel 7 gets the intentionally tiny post-generation tightening.
-    // This is not a Gemini speed instruction; it trims timing by about 8%.
     if (isReel7) pcm = speedUpPcm16(pcm, 1.08);
 
     const wav = pcmToWav(pcm, 24000, 1, 16);
