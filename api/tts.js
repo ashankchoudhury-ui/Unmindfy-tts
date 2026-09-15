@@ -1,5 +1,5 @@
 // UNMINDY TTS worker
-// Generates Gemini TTS audio, lightly tightens Reel 7 pacing, converts PCM to WAV, and stores it in Supabase.
+// Generates Gemini TTS audio, converts PCM to WAV, and stores it in Supabase.
 
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
@@ -89,6 +89,8 @@ Generate ONLY TTS AUDIO for UNMINDY Reel #9.
 VOICE IDENTITY
 Voice: Algieba
 
+Use a clear, fully supported speaking voice throughout. Keep the vocal volume, projection, and breath support consistent from the first word to the last. NEVER whisper, murmur, trail off, become breathy, or suddenly drop into a near-silent voice. Every word must be clearly audible and intelligible.
+
 Target voice:
 naturally deep
 calm
@@ -105,26 +107,30 @@ Aim for roughly 45% dry/deadpan + 55% natural expression.
 Do NOT make it sound motivational, cinematic, dramatic, like a documentary, audiobook, psychology explainer, AI assistant, or speech.
 
 DELIVERY
-Speak naturally, like you're telling one interesting thought to a friend.
+Speak naturally, like you're telling one interesting thought to a friend, but with confident everyday speaking volume and crisp articulation.
+
 The emotion should come from the meaning of the words, not exaggerated acting.
+
+Keep consonants and word endings clear. Maintain consistent vocal presence across every sentence. Natural pitch movement is good, but do not lower the volume when becoming reflective.
 
 Use small natural changes in emphasis, slight curiosity where appropriate, subtle pauses at line breaks, natural conversational rhythm, and slight emphasis on important turns.
 
-Avoid long dramatic pauses, over-pronouncing words, artificially deepening the voice, excessive emotion, every sentence sounding equally important, robotic pacing, or reading each line like a separate statement.
+Avoid whispering, breathy delivery, mumbling, fading volume, swallowed word endings, long dramatic pauses, over-pronouncing words, artificially deepening the voice, excessive emotion, every sentence sounding equally important, robotic pacing, or reading each line like a separate statement.
 
 The line:
 “The song wouldn't change. You would.”
-should have a subtle emphasis and contrast between “wouldn't change” and “You would.”
+should have a subtle emphasis and contrast between “wouldn't change” and “You would.” Keep both parts equally clear and audible.
 
 The final:
 “That’s why endings matter.”
-should feel like a quiet realization—not a dramatic conclusion.
+should feel like a quiet realization, NOT a quieter volume. Keep the same clear speaking volume and intelligibility through the final word.
 
 PACING
 Target total duration: 20–28 seconds.
 Keep the pacing natural and conversational.
 Do not rush just to hit the duration.
 Do not stretch the script with unnecessary pauses.
+Do not slow down by whispering or becoming breathy.
 
 SCRIPT — READ EXACTLY
 
@@ -327,7 +333,7 @@ Natural short-form narration for UNMINDY.
 
 The finished audio should feel like a real person having a quiet, thoughtful conversation — not someone performing a script.`;
 
-    const prompt = isReel9 ? reel9Prompt : isReel7 ? reel7Prompt : isReel6 ? reel6Prompt : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
+    const prompt = isReel9 ? reel9Prompt : isReel7 ? reel7Prompt : isReel6 ? reel6Prompt : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Keep the speaking volume clear and consistent from beginning to end. Never whisper, mumble, become breathy, or trail off. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
