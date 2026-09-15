@@ -3,6 +3,7 @@ const TTS_MAX_ATTEMPTS = 3;
 const TTS_STALE_MINUTES = 20;
 const TTS_ENDPOINT = 'https://unmindfy-tts.vercel.app/api/tts';
 const ONE_TIME_REGEN_ID = '78fbca42-df48-43c7-8abb-671e94c7a6e3';
+const REEL_6_ID = 'f7e3ecfb-8919-4da7-8d5e-09fc50f312ed';
 
 function env(name) {
   const value = process.env[name];
@@ -33,6 +34,7 @@ function eligible(record, staleBeforeMs) {
   const attempts = Number(record.tts_attempts || 0);
   if (!record.script || typeof record.script !== 'string' || !record.script.trim()) return false;
   if (record.id === ONE_TIME_REGEN_ID && record.tts_status === 'Ready' && attempts === 6) return true;
+  if (record.id === REEL_6_ID && record.tts_status === 'Ready') return true;
   if (record.tts_status === 'Not Generated') return true;
   if (record.tts_status === 'Error') return attempts < TTS_MAX_ATTEMPTS;
   if (record.tts_status === 'Generating') {
@@ -49,6 +51,8 @@ async function claim(record, staleBeforeMs) {
   const now = new Date().toISOString();
   let predicate = `tts_status=eq.${encodeURIComponent(record.tts_status)}`;
   if (record.id === ONE_TIME_REGEN_ID && (record.tts_status === 'Ready' || (record.tts_status === 'Generating' && (attempts === 2 || attempts === 3 || attempts === 4)))) {
+    predicate += `&tts_attempts=eq.${attempts}`;
+  } else if (record.id === REEL_6_ID && record.tts_status === 'Ready') {
     predicate += `&tts_attempts=eq.${attempts}`;
   } else if (record.tts_status === 'Not Generated' || record.tts_status === 'Error') {
     predicate += `&tts_attempts=eq.${attempts}`;
@@ -88,7 +92,7 @@ export default async function handler(req, res) {
       }
 
       try {
-        const force = candidate.id === ONE_TIME_REGEN_ID;
+        const force = candidate.id === ONE_TIME_REGEN_ID || candidate.id === REEL_6_ID;
         const tts = await fetch(TTS_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cronSecret}` },
