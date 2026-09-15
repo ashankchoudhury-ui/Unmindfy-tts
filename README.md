@@ -10,3 +10,4 @@ Automated TTS, captioning, video rendering, and Drive export pipeline.
 <!-- final-quality-render-2 -->
 <!-- source-quality-v19 -->
 <!-- reel-3-final-rerender -->
+<!-- reel-7-tts-regeneration -->
