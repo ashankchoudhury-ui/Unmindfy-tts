@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
+const REEL_6_ID = 'f7e3ecfb-8919-4da7-8d5e-09fc50f312ed';
 
 function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   const byteRate = sampleRate * channels * bitsPerSample / 8;
@@ -74,12 +75,9 @@ export default async function handler(req, res) {
     const transcript = record.tts_script || record.script || '';
     if (!transcript.trim()) throw new Error('No TTS script found');
 
-    const prompt = `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm, but this is a short social-media reel: speak at a brisk, comfortable pace. Keep sentence gaps very short and organic. Do not linger, stretch words, or add dramatic pauses. Ellipses in the script indicate only tiny hesitations. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words.
-
-Performance direction: Start extremely natural and casual. Slightly emphasize contrasts and questions, especially “then you hate it because of the ending,” “ten bad minutes,” and “the whole movie.” “But why?” should be very short and genuinely curious. Keep the explanation matter-of-fact. End with restrained weight on “But the movie in your head did,” as a quiet realization, not a dramatic quote.
-
-SCRIPT:
-${transcript}`;
+    const prompt = recordId === REEL_6_ID
+      ? `Read the following UNMINDY reel script exactly as written using voice Algieba. The voice should sound naturally deep, calm, conversational, intelligent, slightly dry, subtly expressive, mildly curious, understated, human and believable. Imagine someone casually sharing a thought with a friend late at night. Delivery: 55% deadpan / 45% natural expression. Start naturally and confidently, as if the first sentence is a genuine thought you've been sitting with. The first two lines should feel intimate and immediately interesting, not exaggerated. Gradually become more reflective as the thought develops. Naturally emphasize these phrases: “don't miss people”, “who we were”, “wouldn't even want back”, “how life felt”, “moving on”, “letting go”, and “version of yourself”. Give “That's why moving on feels so strange.” a slightly more thoughtful pause before continuing. The final section should become quieter and more emotionally meaningful, but never dramatic. “And that's the part you actually miss.” should feel like a quiet realization rather than a performed quote. Use natural pauses and breathing. Do not rush or over-pause between every line. Keep the overall delivery conversational and fluid. Do not sound like an AI, narrator, motivational speaker, documentary presenter, teacher, trailer voice, announcer, advertisement, audiobook, dramatic storyteller, emotionless AI, or psychology teacher. Do not add, remove, rewrite, paraphrase, or improvise any words. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`
+      : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm, but this is a short social-media reel: speak at a brisk, comfortable pace. Keep sentence gaps very short and organic. Do not linger, stretch words, or add dramatic pauses. Ellipses in the script indicate only tiny hesitations. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words.\n\nPerformance direction: Start extremely natural and casual. Slightly emphasize contrasts and questions, especially “then you hate it because of the ending,” “ten bad minutes,” and “the whole movie.” “But why?” should be very short and genuinely curious. Keep the explanation matter-of-fact. End with restrained weight on “But the movie in your head did,” as a quiet realization, not a dramatic quote.\n\nSCRIPT:\n${transcript}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
@@ -94,7 +92,7 @@ ${transcript}`;
     if (!part) throw new Error('No audio returned by Gemini');
     let pcm = Buffer.from(part.inlineData.data, 'base64');
 
-    const speedFactor = recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 1.08 : 1.5;
+    const speedFactor = recordId === REEL_6_ID ? 1.25 : (recordId === '78fbca42-df48-43c7-8abb-671e94c7a6e3' ? 1.08 : 1.5);
     pcm = speedUpPcm16(pcm, speedFactor);
     const wav = pcmToWav(pcm, 24000, 1, 16);
 
