@@ -29,4 +29,4 @@ jobs:
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
-          # Retry Reel 9 queue after resetting a stalled generation.
+          # Clear stalled TTS state only through the normal queue on the next scheduled run.
