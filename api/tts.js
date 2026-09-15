@@ -1,5 +1,5 @@
 // UNMINDY TTS worker
-// Generates Gemini TTS audio, converts PCM to WAV, and stores it in Supabase.
+// Generates Gemini TTS audio, lightly tightens Reel 7 pacing, converts PCM to WAV, and stores it in Supabase.
 
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
@@ -28,6 +28,18 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   return buffer;
 }
 
+function speedUpPcm16(pcm, factor) {
+  if (!Number.isFinite(factor) || factor <= 1) return pcm;
+  const sampleCount = Math.floor(pcm.length / 2);
+  const outputSamples = Math.max(1, Math.floor(sampleCount / factor));
+  const out = Buffer.alloc(outputSamples * 2);
+  for (let i = 0; i < outputSamples; i++) {
+    const srcIndex = Math.min(sampleCount - 1, Math.floor(i * factor));
+    pcm.copy(out, i * 2, srcIndex * 2, srcIndex * 2 + 2);
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -49,7 +61,10 @@ export default async function handler(req, res) {
       .single();
     if (fetchError || !record) return res.status(404).json({ error: 'Record not found' });
 
-    if (!force && record.tts_status === 'Ready' && record.tts_audio_url) {
+    const isReel6 = recordId === REEL_6_ID;
+    const isReel7 = record.reel === 'Reel #7' || record.reel_name === 'Reel #7' || record.title === 'Reel #7';
+
+    if (!force && record.tts_status === 'Ready' && record.tts_audio_url && !isReel7) {
       return res.status(200).json({ ok: true, status: 'Ready', url: record.tts_audio_url });
     }
 
@@ -63,8 +78,101 @@ export default async function handler(req, res) {
     const transcript = record.tts_script || record.script || '';
     if (!transcript.trim()) throw new Error('No TTS script found');
 
-    const prompt = recordId === REEL_6_ID
-      ? `UNMINDY — MASTER TTS GENERATION PROMPT
+    const reel7Prompt = `UNMINDY — REEL #7 TTS GENERATION PROMPT
+
+Generate ONLY the TTS audio for the exact script provided below.
+
+VOICE:
+Use Gemini TTS voice: Algieba.
+
+Voice should feel:
+naturally deep
+calm
+conversational
+intelligent
+slightly dry
+subtly expressive
+thoughtful
+understated
+human
+
+Target roughly 50% deadpan / 50% natural expression.
+
+This reel is philosophical, but DO NOT make the voice sound like a “deep” narrator.
+
+It should sound like someone casually saying a thought they genuinely had and realizing how strange it is while saying it.
+
+Avoid:
+dramatic trailer delivery
+fake “deep voice”
+overly slow narration
+motivational-speaker energy
+overacting
+excessive emotion
+poetic theatrical delivery
+robotic rhythm
+constant seriousness
+unnatural emphasis
+
+The philosophical feeling should come from the thought and progression of the words, NOT from speaking slowly or dramatically.
+
+Natural pitch movement and small changes in emphasis are encouraged.
+
+DELIVERY
+
+The opening should be immediate and conversational. Do NOT treat it like a dramatic hook.
+
+For the short repeated lines, keep them simple and natural. Each line should feel like the thought is becoming more specific.
+
+Give “Nothing changed.” a small pause before it.
+
+Let “Except you.” land naturally. Do NOT overemphasize it or make it sound like a movie trailer reveal.
+
+The second half should become slightly more reflective, but remain conversational.
+
+For “And you don't even notice it happening.” sound like you're realizing something while saying it.
+
+Keep “You just wake up one day” natural and slightly quieter.
+
+Let the final thought carry the emotion. Do not make it motivational, overly sad, or like a quote-reading performance.
+
+The ending should feel like a quiet realization.
+
+PACING
+
+Do NOT artificially stretch the script.
+
+This is a philosophical reel, but it should NOT be spoken unusually slowly.
+
+Aim for approximately 25–30 seconds with natural conversational pacing.
+
+Keep the overall rhythm flowing.
+
+Use short, natural pauses around the short repeated lines and “one day”.
+
+Do not insert long dramatic pauses between every sentence.
+
+The pauses should feel like natural thinking, not theatrical narration.
+
+EXACT SCRIPT
+
+Do not change, add, remove, reorder, or paraphrase any words.
+
+${transcript}
+
+IMPORTANT:
+
+Read the script EXACTLY as written.
+
+Do not add an introduction or outro.
+
+Do not say the title.
+
+Do not explain anything.
+
+Generate only the spoken TTS audio.`;
+
+    const reel6Prompt = `UNMINDY — MASTER TTS GENERATION PROMPT
 
 Generate ONLY the TTS audio for the exact script provided below.
 
@@ -155,8 +263,9 @@ TARGET:
 
 Natural short-form narration for UNMINDY.
 
-The finished audio should feel like a real person having a quiet, thoughtful conversation — not someone performing a script.`
-      : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
+The finished audio should feel like a real person having a quiet, thoughtful conversation — not someone performing a script.`;
+
+    const prompt = isReel7 ? reel7Prompt : isReel6 ? reel6Prompt : `Read the following UNMINDY reel script as a young adult male casually explaining an observation to a friend. Voice: Algieba. Keep it naturally deep, calm, conversational, intelligent, slightly dry/deadpan, subtly expressive, mildly curious, and understated. Natural human rhythm. Do not sound like a narrator, announcer, documentary, YouTuber, motivational speaker, advertisement, audiobook, movie trailer, dramatic storyteller, emotionless AI, or psychology teacher. Do not add words. Read the script exactly as written. Generate only the spoken TTS audio.\n\nSCRIPT:\n${transcript}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
@@ -169,7 +278,12 @@ The finished audio should feel like a real person having a quiet, thoughtful con
 
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
     if (!part) throw new Error('No audio returned by Gemini');
-    const pcm = Buffer.from(part.inlineData.data, 'base64');
+    let pcm = Buffer.from(part.inlineData.data, 'base64');
+
+    // Only Reel 7 gets the intentionally tiny post-generation tightening.
+    // This is not a Gemini speed instruction; it trims timing by about 8%.
+    if (isReel7) pcm = speedUpPcm16(pcm, 1.08);
+
     const wav = pcmToWav(pcm, 24000, 1, 16);
 
     const path = `tts/${recordId}.wav`;
