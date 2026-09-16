@@ -33,3 +33,4 @@ jobs:
           # Reel #12 regeneration trigger
           # Regenerate after script pacing adjustment.
           # Tight continuous delivery: no dramatic gaps.
+          # Reel #13 TTS trigger.
