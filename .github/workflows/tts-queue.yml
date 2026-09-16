@@ -30,3 +30,4 @@ jobs:
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
           # Clear stalled TTS state only through the normal queue on the next scheduled run.
+          # Reel #12 regeneration trigger
