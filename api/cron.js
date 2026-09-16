@@ -78,7 +78,7 @@ export default async function handler(req, res) {
   try {
     const staleBeforeMs = Date.now() - TTS_STALE_MINUTES * 60 * 1000;
     const data = await supabaseRequest(
-      'content_pipeline?select=id,script,tts_status,tts_audio_url,tts_attempts,tts_started_at,updated_at,created_at&order=created_at.asc&limit=25'
+      'content_pipeline?select=id,script,tts_status,tts_audio_url,tts_attempts,tts_started_at,updated_at,created_at&order=created_at.desc&limit=25'
     );
 
     const candidates = (data || []).filter(record => eligible(record, staleBeforeMs)).slice(0, 3);
