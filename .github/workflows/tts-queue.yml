@@ -31,3 +31,4 @@ jobs:
           echo "$response"
           # Clear stalled TTS state only through the normal queue on the next scheduled run.
           # Reel #12 regeneration trigger
+          # Regenerate after script pacing adjustment.
