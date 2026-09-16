@@ -1,0 +1,24 @@
+name: Reel 13 TTS Regeneration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Generate Reel 13 audio
+        env:
+          CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "${CRON_SECRET}" || { echo "UNMINDY_CRON_SECRET is missing"; exit 1; }
+          sleep 60
+          curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 300 -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{"recordId":"7d740517-7f7a-49c6-9106-7aabf996a09d"}' \
+            "https://unmindfy-tts.vercel.app/api/reel13"
