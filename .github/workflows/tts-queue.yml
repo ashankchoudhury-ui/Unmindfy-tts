@@ -32,3 +32,4 @@ jobs:
             -d '{"recordId":"7d740517-7f7a-49c6-9106-7aabf996a09d"}' \
             "https://unmindfy-tts.vercel.app/api/tts13")
           echo "$response"
+          # Reel #13 dedicated regeneration trigger.
