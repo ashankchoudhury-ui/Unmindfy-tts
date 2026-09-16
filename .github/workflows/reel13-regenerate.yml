@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CRON_SECRET}" || { echo "UNMINDY_CRON_SECRET is missing"; exit 1; }
-          sleep 60
+          sleep 120
           curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 300 -X POST \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
