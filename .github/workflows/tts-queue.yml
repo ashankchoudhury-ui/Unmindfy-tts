@@ -3,7 +3,7 @@ name: UNMINDY TTS Queue
 
 on:
   schedule:
-    - cron: "* * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   push:
 
@@ -22,14 +22,14 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CRON_SECRET}" || { echo "UNMINDY_CRON_SECRET is missing"; exit 1; }
+          # Trigger queue for pending UNMINDY TTS jobs.
           # Give the Vercel production deployment triggered by the same push time to become ready.
           sleep 60
-
-          # Dedicated Reel #13 generation using its exact delivery prompt.
-          response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X POST \
+          response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X GET \
             -H "Authorization: Bearer ${CRON_SECRET}" \
-            -H "Content-Type: application/json" \
-            -d '{"recordId":"7d740517-7f7a-49c6-9106-7aabf996a09d"}' \
-            "https://unmindfy-tts.vercel.app/api/tts13")
+            "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
-          # Reel #13 dedicated regeneration trigger.
+          # Clear stalled TTS state only through the normal queue on the next scheduled run.
+          # Reel #12 regeneration trigger
+          # Regenerate after script pacing adjustment.
+          # Tight continuous delivery: no dramatic gaps.
