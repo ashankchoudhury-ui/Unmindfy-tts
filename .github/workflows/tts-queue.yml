@@ -3,7 +3,7 @@ name: UNMINDY TTS Queue
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "* * * * *"
   workflow_dispatch:
   push:
 
