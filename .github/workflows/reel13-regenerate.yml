@@ -22,3 +22,4 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"recordId":"7d740517-7f7a-49c6-9106-7aabf996a09d"}' \
             "https://unmindfy-tts.vercel.app/api/reel13"
+          echo "Reel 13 dedicated TTS request completed."
