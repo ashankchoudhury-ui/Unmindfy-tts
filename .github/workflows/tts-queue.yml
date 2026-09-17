@@ -28,14 +28,15 @@ jobs:
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
 
-      - name: Regenerate Reel 14 with exact tight pacing
+      - name: Generate Reel 15 with exact UNMINDY pacing
         env:
           CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: |
           set -euo pipefail
+          sleep 60
           response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X POST \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
-            -d '{"recordId":"cd1e9204-4b8f-4412-afcb-11e1d3e3a3e9"}' \
-            "https://unmindfy-tts.vercel.app/api/tts14")
+            -d '{"recordId":"4241be87-6d8f-429b-ad0e-a734045a0d1a"}' \
+            "https://unmindfy-tts.vercel.app/api/tts15")
           echo "$response"
