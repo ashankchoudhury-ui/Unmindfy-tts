@@ -28,7 +28,7 @@ jobs:
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
 
-      - name: Generate Reel 15 with exact UNMINDY pacing
+      - name: Generate Reel 15 Pausing Time
         env:
           CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: |
@@ -37,6 +37,5 @@ jobs:
           response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X POST \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
-            -d '{"recordId":"4241be87-6d8f-429b-ad0e-a734045a0d1a"}' \
-            "https://unmindfy-tts.vercel.app/api/tts15")
+            "https://unmindfy-tts.vercel.app/api/tts15pausing")
           echo "$response"
