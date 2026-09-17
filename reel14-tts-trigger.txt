@@ -1,0 +1,30 @@
+Generate Reel #14 TTS.
+
+SCRIPT:
+You used to get bored.
+
+Now the second there's nothing to do,
+you reach for your phone.
+
+Eating.
+Walking.
+Showering.
+
+We've filled every quiet moment.
+Maybe that's why
+our minds feel so full.
+
+VOICE: Algieba
+MODEL: gemini-3.1-flash-tts-preview
+FORMAT: WAV, 24 kHz, mono, 16-bit PCM
+
+IMPORTANT DELIVERY:
+- Natural, deep, calm, conversational UNMINDY delivery.
+- Sound like a real person sharing an observation, NOT a narrator teaching a lesson.
+- Slightly dry, subtle expression; no dramatic acting.
+- Keep the pacing tight and conversational.
+- DO NOT leave large gaps between lines or sentences.
+- Pauses should be short and natural, especially after the hook and examples.
+- Do not over-pronounce or stretch words.
+- Keep the whole read compact, around 25-30 seconds.
+- Let the final three lines land naturally, without a dramatic pause or exaggerated emphasis.
