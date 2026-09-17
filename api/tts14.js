@@ -26,37 +26,41 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   pcm.copy(buffer, 44); return buffer;
 }
 
-function tightenSilencePcm16(pcm, sampleRate = 24000) {
-  const frameSamples = 240; // 10 ms
+function compressLongSilencePcm16(pcm, sampleRate = 24000) {
+  // Remove TTS-generated dead air while preserving tiny natural transitions.
+  const frameSamples = 120; // 5 ms
   const frameBytes = frameSamples * 2;
-  const threshold = 420;
-  const maxGapSamples = Math.floor(sampleRate * 0.16);
+  const threshold = 500;
+  const maxSilenceMs = 70;
+  const maxSilenceSamples = Math.floor(sampleRate * maxSilenceMs / 1000);
   const out = [];
   let cursor = 0;
 
-  const frameSilent = (offset) => {
+  const silent = (offset) => {
     const end = Math.min(offset + frameBytes, pcm.length);
     let sum = 0, count = 0;
     for (let p = offset; p + 1 < end; p += 2) {
-      sum += Math.abs(pcm.readInt16LE(p)); count++;
+      sum += Math.abs(pcm.readInt16LE(p));
+      count++;
     }
-    return count > 0 && sum / count < threshold;
+    return count > 0 && (sum / count) < threshold;
   };
 
   while (cursor < pcm.length) {
-    if (!frameSilent(cursor)) {
+    if (!silent(cursor)) {
       out.push(pcm.subarray(cursor, Math.min(cursor + frameBytes, pcm.length)));
       cursor += frameBytes;
       continue;
     }
     const start = cursor;
-    while (cursor < pcm.length && frameSilent(cursor)) cursor += frameBytes;
+    while (cursor < pcm.length && silent(cursor)) cursor += frameBytes;
     const end = Math.min(cursor, pcm.length);
-    const silentSamples = Math.floor((end - start) / 2);
-    if (silentSamples <= maxGapSamples) {
+    const samples = Math.floor((end - start) / 2);
+    if (samples <= maxSilenceSamples) {
       out.push(pcm.subarray(start, end));
     } else {
-      out.push(pcm.subarray(start, start + maxGapSamples * 2));
+      // Keep only a very short transition instead of the long generated gap.
+      out.push(pcm.subarray(start, start + maxSilenceSamples * 2));
     }
   }
   return Buffer.concat(out);
@@ -75,9 +79,9 @@ export default async function handler(req, res) {
 
 VOICE: naturally deep, calm, conversational, slightly dry, subtly expressive, human, not an AI narrator. Roughly 55% dry/deadpan and 45% natural expression. Sound like someone casually noticing something about everyday life and thinking out loud.
 
-DELIVERY: Make the entire script one continuous conversational thought. Keep gaps between lines SHORT and natural. Line breaks are for rhythm, NOT silence. Do not pause dramatically after every sentence. Keep sentence-to-sentence gaps generally around 0.05–0.15 seconds and never intentionally insert long silence. The opening “You used to get bored. Now…” must flow naturally and tightly as one thought. “Eating. Walking. Showering.” should be quick, rhythmic observations. Take only a slight natural pause before “We've filled every quiet moment.” The final three lines slow down slightly and become reflective, but remain connected and conversational.
+DELIVERY: Speak the entire script as one continuous thought. The most important requirement is NO LONG GAPS. Do not treat line breaks as pauses. Move directly from one line into the next with only the tiny transition needed for natural speech. Keep inter-line pauses extremely short, generally about 0.02–0.08 seconds. Do not insert deliberate silence after each sentence or line. The opening “You used to get bored. Now…” must flow directly together. “Eating. Walking. Showering.” must be quick and rhythmic with almost no separation. Only a tiny natural pause before “We've filled every quiet moment.” The final three lines can become slightly more reflective, but must remain tightly connected.
 
-PACING: Target approximately 25–30 seconds, but do not stretch to hit a duration. Prioritize natural flow, retention, conversational delivery, and clarity. Never stretch words to create drama.
+Do not stretch the recording to reach a duration. Keep the speech compact and conversational. Target approximately 25–30 seconds only if that happens naturally; otherwise prioritize tight flow.
 
 PRONUNCIATION: Speak every word naturally in conversational English. Make “second there's nothing to do” fluid rather than word-by-word. Keep “quiet moment” natural and understated. Make “our minds feel so full” slightly reflective, not dramatic.
 
@@ -101,7 +105,7 @@ Generate ONLY the spoken TTS audio.`;
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
     if (!part) throw new Error('No audio returned by Gemini');
 
-    const pcm = tightenSilencePcm16(Buffer.from(part.inlineData.data, 'base64'), 24000);
+    const pcm = compressLongSilencePcm16(Buffer.from(part.inlineData.data, 'base64'), 24000);
     const wav = pcmToWav(pcm, 24000, 1, 16);
     const path = `tts/${RECORD_ID}.wav`;
     const { error: uploadError } = await supabase.storage.from('tts-audio').upload(path, wav, { contentType: 'audio/wav', upsert: true, cacheControl: '0' });
