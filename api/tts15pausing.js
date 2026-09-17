@@ -16,9 +16,9 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   buffer.write('data', 36); buffer.writeUInt32LE(pcm.length, 40); pcm.copy(buffer, 44); return buffer;
 }
 
-function tightenSilencePcm16(pcm, sampleRate = 24000) {
+function naturalizeSilencePcm16(pcm, sampleRate = 24000) {
   const frameSamples = 120, frameBytes = frameSamples * 2, threshold = 500;
-  const maxSilenceSamples = Math.floor(sampleRate * 0.10), out = [];
+  const minSilenceSamples = Math.floor(sampleRate * 0.14), maxSilenceSamples = Math.floor(sampleRate * 0.24), out = [];
   let cursor = 0;
   const silent = (offset) => {
     const end = Math.min(offset + frameBytes, pcm.length); let sum = 0, count = 0;
@@ -30,7 +30,8 @@ function tightenSilencePcm16(pcm, sampleRate = 24000) {
     const start = cursor;
     while (cursor < pcm.length && silent(cursor)) cursor += frameBytes;
     const end = Math.min(cursor, pcm.length), samples = Math.floor((end - start) / 2);
-    out.push(samples <= maxSilenceSamples ? pcm.subarray(start, end) : pcm.subarray(start, start + maxSilenceSamples * 2));
+    if (samples < minSilenceSamples) out.push(pcm.subarray(start, end));
+    else out.push(pcm.subarray(start, start + Math.min(samples, maxSilenceSamples) * 2));
   }
   return Buffer.concat(out);
 }
@@ -38,7 +39,6 @@ function tightenSilencePcm16(pcm, sampleRate = 24000) {
 export default async function handler(req, res) {
   try {
     if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-    // GET is temporarily allowed so the connected browser can trigger this one-off generation.
     if (req.method === 'POST' && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
     if (!key || !process.env.GEMINI_API_KEY) throw new Error('Missing required environment variable');
@@ -51,20 +51,20 @@ VOICE: Algieba.
 
 Sound like a real person casually talking directly to one person. Naturally deep, calm, conversational, slightly dry/deadpan, subtly expressive, intimate, thoughtful without sounding intentionally “deep”. Aim for 55% dry/deadpan and 45% natural expression. Do not sound like a documentary, audiobook, motivational speaker, movie trailer, dramatic philosophical monologue, psychology explainer, inspirational TikTok narrator, or AI trying to sound emotional.
 
-DELIVERY: Think the script, don't perform it. The emotional progression is subtle: possibility → warmth → realization. The first line is casual and direct. The second line is slightly warmer and imaginative. The third continues smoothly. The “But” marks a natural turn in thought, not an ominous shift. The final question is a genuine question and the ending should remain understated.
+DELIVERY: Think the script, don't perform it. Subtle progression: possibility → warmth → realization. Keep the first line casual and direct. Let the second line feel a little warmer and imaginative. Let the third line connect naturally, with a tiny conversational breath between thoughts. The “But” is an understated turn in thought. The final question is genuine and curious, not dramatic.
 
-PACING: Compact and spontaneous. Short human pauses only, around 0.1–0.25 seconds between thought units. No long cinematic gaps. Do not pause after every word. Do not slow down unnaturally. Do not stretch vowels. Treat “and never having to leave it” as a continuation of the preceding thought, not a separate dramatic sentence. The ellipsis in “every moment…” is only a brief thinking pause. Keep the final question flowing naturally and leave only a tiny natural tail after “special”.
+PACING: Natural conversational flow with TINY human pauses, not zero gaps and not long pauses. Aim roughly 0.15–0.22 seconds at normal sentence/thought boundaries, with about 0.18 seconds after the hook, around 0.15 seconds before “and never having to leave it”, around 0.18–0.22 seconds before “But”, and around 0.15–0.20 seconds before the final question. The ellipsis in “every moment…” should be only a brief thinking beat. Do not pause after every word. Do not stretch vowels. Do not rush. The narration should feel like one continuous natural thought with tiny breathing room between ideas. No long cinematic silence.
 
-EMPHASIS: Extremely subtle extra weight on “pause time”, “moment you loved”, “every moment”, and “special”. Never punch the words. Let the contrast between “every moment” and “special” emerge naturally.
+EMPHASIS: Extremely subtle extra weight on “pause time”, “moment you loved”, “every moment”, and “special”. Never punch the words. Let the contrast emerge naturally.
 
-HUMAN EXPRESSION: Small natural pitch and rhythm variation, natural breath placement, and conversational timing. No fake fillers, stutters, extra breaths, whispering, vocal theatrics, exaggerated emotional drops, or over-pronunciation. Do not add any words.
+HUMAN EXPRESSION: Small natural pitch and rhythm variation, natural breath placement, conversational timing. No fake fillers, stutters, whispering, vocal theatrics, exaggerated emotional drops, or over-pronunciation. Do not add any words.
 
 AUDIO: clean narration only. No music, ambience, SFX, intro, outro, title, commentary, or extra words. Read the script exactly as written.
 
 SCRIPT:
 ${SCRIPT}`;
 
-    await supabase.from('content_pipeline').update({ tts_status: 'Generating', tts_attempts: 1, tts_started_at: new Date().toISOString() }).eq('id', RECORD_ID);
+    await supabase.from('content_pipeline').update({ tts_status: 'Generating', tts_attempts: 2, tts_started_at: new Date().toISOString() }).eq('id', RECORD_ID);
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -72,7 +72,7 @@ ${SCRIPT}`;
     });
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
     if (!part) throw new Error('No audio returned by Gemini');
-    const pcm = tightenSilencePcm16(Buffer.from(part.inlineData.data, 'base64'), 24000);
+    const pcm = naturalizeSilencePcm16(Buffer.from(part.inlineData.data, 'base64'), 24000);
     const wav = pcmToWav(pcm);
     const path = `tts/${RECORD_ID}.wav`;
     const { error: uploadError } = await supabase.storage.from('tts-audio').upload(path, wav, { contentType: 'audio/wav', upsert: true, cacheControl: '0' });
