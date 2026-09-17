@@ -1,22 +1,18 @@
-// UNMINDY Reel #13 dedicated TTS worker
+// UNMINDY Reel #14 dedicated TTS worker
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://iwpanewluzilghoitvxr.supabase.co';
-const RECORD_ID = '7d740517-7f7a-49c6-9106-7aabf996a09d';
-const SCRIPT = `If everyone you met liked you…
-Would being liked by anyone even mean anything?
-
-You'd always be wanted.
-Everyone would choose you.
-
-Sounds perfect.
-
-But if everyone chose you,
-how would you know when someone really chose you?
-
-Maybe being chosen only feels special
-when they could've chosen someone else.`;
+const RECORD_ID = 'cd1e9204-4b8f-4412-afcb-11e1d3e3a3e9';
+const SCRIPT = `You used to get bored.
+Now the second there's nothing to do,
+you reach for your phone.
+Eating.
+Walking.
+Showering.
+We've filled every quiet moment.
+Maybe that's why
+our minds feel so full.`;
 
 function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   const byteRate = sampleRate * channels * bitsPerSample / 8;
@@ -30,63 +26,37 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   pcm.copy(buffer, 44); return buffer;
 }
 
-function speedUpPcm16(pcm, factor) {
-  const samples = Math.floor(pcm.length / 2);
-  const outSamples = Math.max(1, Math.floor(samples / factor));
-  const out = Buffer.alloc(outSamples * 2);
-  for (let i = 0; i < outSamples; i++) {
-    const src = Math.min(samples - 1, Math.floor(i * factor));
-    pcm.copy(out, i * 2, src * 2, src * 2 + 2);
-  }
-  return out;
-}
-
-// Gemini sometimes inserts very long silences around line breaks. Keep tiny natural
-// pauses, but cap obvious gaps so the Reel stays compact and conversational.
 function tightenSilencePcm16(pcm, sampleRate = 24000) {
-  const bytesPerSample = 2;
-  const frameSamples = 240; // 10 ms
-  const frameBytes = frameSamples * bytesPerSample;
-  const threshold = 420;
-  const maxGapMs = 180;
-  const keepSamples = Math.floor(sampleRate * maxGapMs / 1000);
-  const chunks = [];
-  let silenceStart = -1;
+  const frameSamples = 120; // 5 ms
+  const frameBytes = frameSamples * 2;
+  const threshold = 500;
+  const maxSilenceSamples = Math.floor(sampleRate * 0.06); // hard cap: 60 ms
+  const out = [];
+  let cursor = 0;
 
-  function frameSilent(offset) {
+  const silent = (offset) => {
     const end = Math.min(offset + frameBytes, pcm.length);
-    let sum = 0;
-    let count = 0;
+    let sum = 0, count = 0;
     for (let p = offset; p + 1 < end; p += 2) {
-      const s = pcm.readInt16LE(p);
-      sum += Math.abs(s);
-      count++;
+      sum += Math.abs(pcm.readInt16LE(p)); count++;
     }
     return count > 0 && sum / count < threshold;
-  }
+  };
 
-  for (let offset = 0; offset < pcm.length; offset += frameBytes) {
-    const silent = frameSilent(offset);
-    if (silent && silenceStart < 0) silenceStart = offset;
-    if (!silent && silenceStart >= 0) {
-      const gapSamples = Math.floor((offset - silenceStart) / 2);
-      if (gapSamples > keepSamples) {
-        chunks.push(pcm.subarray(silenceStart, silenceStart + keepSamples * 2));
-        chunks.push(pcm.subarray(offset));
-        const prefix = pcm.subarray(0, silenceStart);
-        return Buffer.concat([prefix, ...chunks]);
-      }
-      silenceStart = -1;
+  while (cursor < pcm.length) {
+    if (!silent(cursor)) {
+      out.push(pcm.subarray(cursor, Math.min(cursor + frameBytes, pcm.length)));
+      cursor += frameBytes;
+      continue;
     }
+    const start = cursor;
+    while (cursor < pcm.length && silent(cursor)) cursor += frameBytes;
+    const end = Math.min(cursor, pcm.length);
+    const silentSamples = Math.floor((end - start) / 2);
+    if (silentSamples <= maxSilenceSamples) out.push(pcm.subarray(start, end));
+    else out.push(pcm.subarray(start, start + maxSilenceSamples * 2));
   }
-
-  if (silenceStart >= 0) {
-    const gapSamples = Math.floor((pcm.length - silenceStart) / 2);
-    if (gapSamples > keepSamples) {
-      return Buffer.concat([pcm.subarray(0, silenceStart), pcm.subarray(silenceStart, silenceStart + keepSamples * 2)]);
-    }
-  }
-  return pcm;
+  return Buffer.concat(out);
 }
 
 export default async function handler(req, res) {
@@ -100,19 +70,25 @@ export default async function handler(req, res) {
 
     const prompt = `Generate ONLY the spoken voice audio. Use Algieba.
 
-VOICE: naturally deep, clear, present, human, calm, conversational, slightly dry, understated, thoughtful, intelligent, subtly expressive. Roughly 45% deadpan and 55% natural expression. Never sound like a narrator or perform a “deep” quote.
+VOICE: naturally deep, calm, conversational, slightly dry, subtly expressive, human. Roughly 55% dry/deadpan and 45% natural expression. Sound like someone casually noticing something about everyday life and thinking out loud.
 
-IMPORTANT RHYTHM: Make this a SHORT, TIGHT conversational Reel. Target about 17–21 seconds. Speak at a natural brisk conversational pace. Do NOT stretch words. Do NOT add dramatic silence. Line breaks are NOT pauses. Keep sentence-to-sentence gaps very short, generally around 0.05–0.15 seconds. Never insert a gap longer than about 0.2 seconds unless absolutely required by punctuation. The whole thought should flow continuously.
+MOST IMPORTANT — PACING: Read this as ONE continuous thought. DO NOT insert long gaps. Line breaks are rhythm markers, NOT silence instructions. Keep almost no silence between lines. Inter-line transitions should be immediate, with only the tiny natural transition of connected speech, generally 0.02–0.08 seconds. Never deliberately pause after every line. Do not create dramatic silence anywhere.
 
-OPENING: “If everyone you met liked you…” is ONE uninterrupted sentence/thought. No pause inside it. After it, take only a tiny conversational breath, then immediately continue with “Would being liked by anyone even mean anything?”
+The opening “You used to get bored. Now…” must flow directly together. “Now the second there's nothing to do, you reach for your phone.” must sound fluid, not word-by-word.
 
-DELIVERY: “You'd always be wanted.” matter-of-fact. “Everyone would choose you.” slight emphasis on “choose”. “Sounds perfect.” understated and quick. “But if everyone chose you…” immediate contradiction, no dramatic gap. The question that follows can be a touch more thoughtful, but keep it moving. The final two lines should be a quiet realization with subtle emphasis, NOT a slow dramatic ending.
+“Eating. Walking. Showering.” must be quick, rhythmic observations with almost no gaps between them.
 
-AUDIO: full clear volume throughout. Never whisper, mumble, trail off, become breathy, or fade at the end. Every word must remain intelligible on phone speakers.
+Take only a tiny transition before “We've filled every quiet moment.” The final three lines can slow slightly in thought, but remain tightly connected. Do not stretch words or add pauses to reach a duration.
 
-NO: cinematic delivery, narrator voice, motivational tone, audiobook pacing, theatrical pauses, suspense, exaggerated emotion, overacting, artificial deepening, long breaths, or line-by-line dramatic reading.
+Target approximately 25–30 seconds naturally, but prioritize tight conversational flow over duration.
 
-READ EXACTLY — WORD FOR WORD. Do not add, remove, rewrite, repeat, introduce, explain, title, or comment.
+PRONUNCIATION: Natural conversational English. Keep “quiet moment” understated. Make “our minds feel so full” slightly reflective, not dramatic.
+
+AUDIO: clear, full, present volume throughout. Every word intelligible on phone speakers. No whispering, mumbling, breathiness, trailing off, fading, or theatrical breaths.
+
+DO NOT sound sad, motivational, inspirational, mysterious, cinematic, documentary-like, theatrical, audiobook-like, or like an announcer. No dramatic pauses, music, sound effects, intro, outro, or commentary.
+
+READ EXACTLY — WORD FOR WORD. Do not add, remove, rewrite, repeat, or reorder anything.
 
 ${SCRIPT}
 
@@ -128,10 +104,7 @@ Generate ONLY the spoken TTS audio.`;
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
     if (!part) throw new Error('No audio returned by Gemini');
 
-    let pcm = Buffer.from(part.inlineData.data, 'base64');
-    pcm = tightenSilencePcm16(pcm, 24000);
-    pcm = speedUpPcm16(pcm, 1.10);
-
+    const pcm = tightenSilencePcm16(Buffer.from(part.inlineData.data, 'base64'), 24000);
     const wav = pcmToWav(pcm, 24000, 1, 16);
     const path = `tts/${RECORD_ID}.wav`;
     const { error: uploadError } = await supabase.storage.from('tts-audio').upload(path, wav, { contentType: 'audio/wav', upsert: true, cacheControl: '0' });
@@ -142,7 +115,7 @@ Generate ONLY the spoken TTS audio.`;
     if (updateError) throw updateError;
     return res.status(200).json({ ok: true, status: 'Ready', url });
   } catch (error) {
-    console.error('UNMINDY Reel #13 TTS worker error:', error);
+    console.error('UNMINDY Reel #14 TTS worker error:', error);
     return res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
