@@ -28,19 +28,7 @@ jobs:
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
 
-      - name: Regenerate Reel 13 with tight pacing
-        env:
-          CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
-        run: |
-          set -euo pipefail
-          response=$(curl --fail-with-body -sS --retry 2 --connect-timeout 10 --max-time 240 -X POST \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            -H "Content-Type: application/json" \
-            -d '{"recordId":"7d740517-7f7a-49c6-9106-7aabf996a09d"}' \
-            "https://unmindfy-tts.vercel.app/api/tts13")
-          echo "$response"
-
-      - name: Generate Reel 14 with tight conversational pacing
+      - name: Regenerate Reel 14 with near-continuous pacing
         env:
           CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: |
@@ -49,5 +37,5 @@ jobs:
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
             -d '{"recordId":"cd1e9204-4b8f-4412-afcb-11e1d3e3a3e9"}' \
-            "https://unmindfy-tts.vercel.app/api/tts14")
+            "https://unmindfy-tts.vercel.app/api/tts13")
           echo "$response"
