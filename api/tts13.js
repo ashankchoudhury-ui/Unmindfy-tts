@@ -30,6 +30,65 @@ function pcmToWav(pcm, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
   pcm.copy(buffer, 44); return buffer;
 }
 
+function speedUpPcm16(pcm, factor) {
+  const samples = Math.floor(pcm.length / 2);
+  const outSamples = Math.max(1, Math.floor(samples / factor));
+  const out = Buffer.alloc(outSamples * 2);
+  for (let i = 0; i < outSamples; i++) {
+    const src = Math.min(samples - 1, Math.floor(i * factor));
+    pcm.copy(out, i * 2, src * 2, src * 2 + 2);
+  }
+  return out;
+}
+
+// Gemini sometimes inserts very long silences around line breaks. Keep tiny natural
+// pauses, but cap obvious gaps so the Reel stays compact and conversational.
+function tightenSilencePcm16(pcm, sampleRate = 24000) {
+  const bytesPerSample = 2;
+  const frameSamples = 240; // 10 ms
+  const frameBytes = frameSamples * bytesPerSample;
+  const threshold = 420;
+  const maxGapMs = 180;
+  const keepSamples = Math.floor(sampleRate * maxGapMs / 1000);
+  const chunks = [];
+  let silenceStart = -1;
+
+  function frameSilent(offset) {
+    const end = Math.min(offset + frameBytes, pcm.length);
+    let sum = 0;
+    let count = 0;
+    for (let p = offset; p + 1 < end; p += 2) {
+      const s = pcm.readInt16LE(p);
+      sum += Math.abs(s);
+      count++;
+    }
+    return count > 0 && sum / count < threshold;
+  }
+
+  for (let offset = 0; offset < pcm.length; offset += frameBytes) {
+    const silent = frameSilent(offset);
+    if (silent && silenceStart < 0) silenceStart = offset;
+    if (!silent && silenceStart >= 0) {
+      const gapSamples = Math.floor((offset - silenceStart) / 2);
+      if (gapSamples > keepSamples) {
+        chunks.push(pcm.subarray(silenceStart, silenceStart + keepSamples * 2));
+        chunks.push(pcm.subarray(offset));
+        const prefix = pcm.subarray(0, silenceStart);
+        return Buffer.concat([prefix, ...chunks]);
+      }
+      silenceStart = -1;
+    }
+  }
+
+  if (silenceStart >= 0) {
+    const gapSamples = Math.floor((pcm.length - silenceStart) / 2);
+    if (gapSamples > keepSamples) {
+      return Buffer.concat([pcm.subarray(0, silenceStart), pcm.subarray(silenceStart, silenceStart + keepSamples * 2)]);
+    }
+  }
+  return pcm;
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -41,25 +100,17 @@ export default async function handler(req, res) {
 
     const prompt = `Generate ONLY the spoken voice audio. Use Algieba.
 
-PERFORMANCE: Naturally deep, clear, present, human. Calm, conversational, slightly dry and understated. Thoughtful and intelligent without narrator energy. Subtly expressive. Approximately 45% deadpan and 55% natural expression. Sound like a real person casually talking through a strange idea with a friend. Never perform “deep” content.
+VOICE: naturally deep, clear, present, human, calm, conversational, slightly dry, understated, thoughtful, intelligent, subtly expressive. Roughly 45% deadpan and 55% natural expression. Never sound like a narrator or perform a “deep” quote.
 
-AUDIO: Full, present, consistent volume. Every word clear on phone speakers. Never whisper, breathe heavily, mumble, soften excessively, trail off, or become cinematic. Natural breathing is okay only when it does not obscure words.
+IMPORTANT RHYTHM: Make this a SHORT, TIGHT conversational Reel. Target about 17–21 seconds. Speak at a natural brisk conversational pace. Do NOT stretch words. Do NOT add dramatic silence. Line breaks are NOT pauses. Keep sentence-to-sentence gaps very short, generally around 0.05–0.15 seconds. Never insert a gap longer than about 0.2 seconds unless absolutely required by punctuation. The whole thought should flow continuously.
 
-RHYTHM: Tight conversational Reel pacing, approximately 20–25 seconds. Do not rush, but do not stretch. Use ONLY short natural conversational pauses. Line breaks are NOT instructions for silence. Never insert long gaps between lines or sentences. Punctuation can create brief pauses, but keep them compact. Do not add silence to make the piece sound philosophical.
+OPENING: “If everyone you met liked you…” is ONE uninterrupted sentence/thought. No pause inside it. After it, take only a tiny conversational breath, then immediately continue with “Would being liked by anyone even mean anything?”
 
-OPENING: “If everyone you met liked you…” is ONE continuous sentence and one continuous thought. Keep “If everyone you met” naturally connected directly to “liked you”. Absolutely no pause inside that sentence. After the completed first sentence, use only a short natural pause, then immediately ask “Would being liked by anyone even mean anything?” The opening should feel immediate, curious, and conversational.
+DELIVERY: “You'd always be wanted.” matter-of-fact. “Everyone would choose you.” slight emphasis on “choose”. “Sounds perfect.” understated and quick. “But if everyone chose you…” immediate contradiction, no dramatic gap. The question that follows can be a touch more thoughtful, but keep it moving. The final two lines should be a quiet realization with subtle emphasis, NOT a slow dramatic ending.
 
-DELIVERY MAP:
-- “If everyone you met liked you…” curious, direct, immediate; one uninterrupted thought.
-- “Would being liked by anyone even mean anything?” genuine question, conversational, not dramatic.
-- “You'd always be wanted.” simple and matter-of-fact.
-- “Everyone would choose you.” slight natural emphasis on “choose”.
-- “Sounds perfect.” understated, like agreeing with the obvious answer; only a brief pause afterward.
-- “But if everyone chose you…” naturally introduce the contradiction; do not pause excessively.
-- “how would you know when someone really chose you?” a little more thoughtful and slightly slower, but still conversational; no long silence around it.
-- Final two lines are a quiet realization, controlled and natural. Give “when they could've chosen someone else” the emotional weight through subtle emphasis, NOT a dramatic voice or long pause.
+AUDIO: full clear volume throughout. Never whisper, mumble, trail off, become breathy, or fade at the end. Every word must remain intelligible on phone speakers.
 
-CRITICAL: No exaggerated acting. No movie-trailer voice. No inspirational tone. No sadness unless naturally implied. No forced emotion. No dramatic vocal drops. No excessive pauses. No robotic uniformity. Do not make every sentence sound equally deep. The realization must feel discovered in real time, not performed as a quote.
+NO: cinematic delivery, narrator voice, motivational tone, audiobook pacing, theatrical pauses, suspense, exaggerated emotion, overacting, artificial deepening, long breaths, or line-by-line dramatic reading.
 
 READ EXACTLY — WORD FOR WORD. Do not add, remove, rewrite, repeat, introduce, explain, title, or comment.
 
@@ -76,7 +127,11 @@ Generate ONLY the spoken TTS audio.`;
     });
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
     if (!part) throw new Error('No audio returned by Gemini');
-    const pcm = Buffer.from(part.inlineData.data, 'base64');
+
+    let pcm = Buffer.from(part.inlineData.data, 'base64');
+    pcm = tightenSilencePcm16(pcm, 24000);
+    pcm = speedUpPcm16(pcm, 1.10);
+
     const wav = pcmToWav(pcm, 24000, 1, 16);
     const path = `tts/${RECORD_ID}.wav`;
     const { error: uploadError } = await supabase.storage.from('tts-audio').upload(path, wav, { contentType: 'audio/wav', upsert: true, cacheControl: '0' });
