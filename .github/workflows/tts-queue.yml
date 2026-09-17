@@ -28,7 +28,7 @@ jobs:
             "https://unmindfy-tts.vercel.app/api/cron")
           echo "$response"
 
-      - name: Regenerate Reel 14 with near-continuous pacing
+      - name: Regenerate Reel 14 with exact tight pacing
         env:
           CRON_SECRET: ${{ secrets.UNMINDY_CRON_SECRET }}
         run: |
@@ -37,5 +37,5 @@ jobs:
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
             -d '{"recordId":"cd1e9204-4b8f-4412-afcb-11e1d3e3a3e9"}' \
-            "https://unmindfy-tts.vercel.app/api/tts13")
+            "https://unmindfy-tts.vercel.app/api/tts14")
           echo "$response"
